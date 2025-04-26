@@ -257,7 +257,8 @@ For each field, provide:
 If a field has no corresponding information in the resume, mark it as "No information available" with Low confidence.
 Do NOT make up or invent any information that is not explicitly in the resume.
 
-Format the response as a JSON object like this:
+IMPORTANT: Return ONLY a valid JSON object without any markdown formatting (no \`\`\` characters). Your entire response should be parseable as JSON.
+Format your response exactly as follows:
 {
   "fields": [
     {
