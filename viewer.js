@@ -34,10 +34,15 @@ async function loadEnvVars() {
 let agentsAPI = null;
 let envVars = {};
 
+// Store parsed resume and form data
+let parsedResume = '';
+let formData = null;
+
 // Navigation functionality
 const navLinks = {
   resume: document.getElementById('nav-resume'),
   application: document.getElementById('nav-application'),
+  output: document.getElementById('nav-output'),
   ai: document.getElementById('nav-ai'),
   settings: document.getElementById('nav-settings')
 };
@@ -45,6 +50,7 @@ const navLinks = {
 const pages = {
   resume: document.getElementById('page-resume'),
   application: document.getElementById('page-application'),
+  output: document.getElementById('page-output'),
   ai: document.getElementById('page-ai'),
   settings: document.getElementById('page-settings')
 };
@@ -80,8 +86,9 @@ function checkUrlParameters() {
       const extractedData = localStorage.getItem('extractedHTML');
       if (extractedData) {
         try {
-          const formData = JSON.parse(extractedData);
-          displayFormData(formData);
+          const parsedData = JSON.parse(extractedData);
+          formData = parsedData;
+          displayFormData(parsedData);
         } catch (error) {
           // Handle the case where the data might be old format raw HTML
           displayExtractedHTML(extractedData);
@@ -115,7 +122,11 @@ input.addEventListener('change', async () => {
       fullText += content.items.map(item => item.str).join(' ') + '\n';
     }
 
-    out.textContent = toMarkdown(fullText);
+    parsedResume = toMarkdown(fullText);
+    out.textContent = parsedResume;
+    
+    // Store the parsed resume in localStorage
+    localStorage.setItem('parsedResume', parsedResume);
     
     // Add copy button
     addCopyButton();
@@ -174,80 +185,376 @@ function addCopyButton() {
   out.parentNode.insertBefore(copyBtn, out.nextSibling);
 }
 
-// AI Chat functionality
-const chatInput = document.getElementById('chat-input');
-const sendButton = document.getElementById('send-button');
-const chatbox = document.getElementById('chatbox');
+// Output Page functionality
+const outputSummary = document.getElementById('output-summary').querySelector('.summary-content');
+const outputFields = document.getElementById('output-fields').querySelector('.fields-container');
+const generateOutputButton = document.getElementById('generate-output');
+const copyOutputButton = document.getElementById('copy-output');
+const clearOutputButton = document.getElementById('clear-output');
 
-// Function to add a message to the chat
-function addMessage(message, isUser = false) {
-  const messageElement = document.createElement('div');
-  messageElement.classList.add('chat-message');
-  messageElement.classList.add(isUser ? 'user-message' : 'ai-message');
-  messageElement.textContent = message;
-  
-  chatbox.appendChild(messageElement);
-  
-  // Scroll to bottom of chat
-  chatbox.scrollTop = chatbox.scrollHeight;
-}
+// Variable to store the AI-generated output
+let aiGeneratedOutput = null;
 
-// Initialize the AgentsAPI client with environment variables from .env
-async function initializeAgentsAPI() {
-  envVars = await loadEnvVars();
+// Function to generate the AI prompt based on form fields and resume
+function generatePrompt() {
+  // Get the resume data
+  const resume = localStorage.getItem('parsedResume') || '';
   
-  // First check if we have saved values in localStorage
-  const apiKey = localStorage.getItem('apiKey') || envVars.OPENAI_API_KEY || '';
-  const baseURL = localStorage.getItem('apiBaseUrl') || envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
-  const model = localStorage.getItem('modelName') || envVars.MODEL_NAME || 'gpt-4o';
+  // Get the form data
+  const extractedData = localStorage.getItem('extractedHTML');
+  let forms = [];
+  let autofillableFields = [];
   
-  // Update the settings form fields
-  document.getElementById('api-key').value = apiKey;
-  document.getElementById('api-base-url').value = baseURL;
-  document.getElementById('model-name').value = model;
-  
-  if (apiKey) {
-    agentsAPI = new AgentsAPI(apiKey, baseURL, model);
-    addMessage('API client initialized successfully. Ready to chat!');
-  } else {
-    addMessage('Please add your API key in the Settings tab to use the chat functionality.');
-  }
-}
-
-// Handle send button click
-sendButton.addEventListener('click', async () => {
-  const message = chatInput.value.trim();
-  if (message) {
-    addMessage(message, true);
-    chatInput.value = '';
-    
-    if (agentsAPI) {
-      // Show typing indicator
-      const typingIndicator = document.createElement('div');
-      typingIndicator.classList.add('chat-message', 'ai-message');
-      typingIndicator.textContent = 'Thinking...';
-      chatbox.appendChild(typingIndicator);
-      
-      // Make API call
-      const response = await agentsAPI.sendMessage(message);
-      
-      // Remove typing indicator
-      chatbox.removeChild(typingIndicator);
-      
-      // Display the response
-      addMessage(response);
-    } else {
-      addMessage('API client not initialized. Please check your API key in Settings.');
+  if (extractedData) {
+    try {
+      const parsedData = JSON.parse(extractedData);
+      forms = parsedData.forms || [];
+      autofillableFields = parsedData.autofillableFields || [];
+    } catch (error) {
+      console.error('Error parsing form data:', error);
+      return 'Error: Could not parse form data';
     }
+  } else {
+    return 'Error: No form data available. Please extract form data first.';
+  }
+  
+  // Generate a prompt for the AI
+  let prompt = `I need your help to fill out a form using information from my resume. 
+
+RESUME CONTENT:
+${resume}
+
+FORM FIELDS:
+`;
+
+  if (autofillableFields.length > 0) {
+    // Add all autofillable fields to the prompt
+    autofillableFields.forEach(field => {
+      const fieldName = field.name || field.id;
+      const fieldLabel = field.label || fieldName;
+      prompt += `- ${fieldLabel} (ID: ${fieldName}, Type: ${field.type})\n`;
+    });
+  } else if (forms.length > 0) {
+    // Fallback to listing all form fields
+    forms.forEach(form => {
+      prompt += `Form: ${form.name || form.id}\n`;
+      form.fields.forEach(field => {
+        const fieldName = field.name || field.id;
+        const fieldLabel = field.label || fieldName;
+        prompt += `- ${fieldLabel} (ID: ${fieldName}, Type: ${field.type})\n`;
+      });
+    });
+  } else {
+    return 'Error: No form fields found. Please extract a form first.';
+  }
+  
+  prompt += `\nPlease analyze the resume and provide values for these form fields based ONLY on information present in the resume. 
+For each field, provide:
+1. The field ID or name
+2. The suggested value based on the resume content
+3. Your confidence level (High/Medium/Low) for this mapping
+
+If a field has no corresponding information in the resume, mark it as "No information available" with Low confidence.
+Do NOT make up or invent any information that is not explicitly in the resume.
+
+Format the response as a JSON object like this:
+{
+  "fields": [
+    {
+      "id": "field_name_or_id",
+      "value": "suggested value from resume",
+      "confidence": "High/Medium/Low"
+    },
+    ...
+  ],
+  "summary": "A brief summary of how well the resume matches the form fields overall."
+}`;
+
+  return prompt;
+}
+
+// Function to display the AI-generated output
+function displayAIOutput(output) {
+  let parsedOutput;
+  
+  try {
+    // First try to parse as JSON
+    if (typeof output === 'string') {
+      // Check if the output is already in JSON format
+      if (output.trim().startsWith('{') || output.trim().startsWith('[')) {
+        try {
+          parsedOutput = JSON.parse(output);
+        } catch (error) {
+          console.log("Failed initial JSON parse, trying to extract JSON from text");
+          
+          // Try to extract JSON from the response if it's embedded in text
+          const jsonMatch = output.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            try {
+              parsedOutput = JSON.parse(jsonMatch[0]);
+            } catch (innerError) {
+              console.error("Failed to extract JSON:", innerError);
+              throw new Error("Could not parse response as JSON");
+            }
+          } else {
+            throw new Error("No JSON object found in response");
+          }
+        }
+      } else {
+        // If it's not JSON, create a simple structure
+        parsedOutput = {
+          summary: "AI provided a non-JSON response. This may contain useful information but isn't in the expected format.",
+          fields: [],
+          rawResponse: output
+        };
+      }
+    } else if (typeof output === 'object') {
+      // Already an object, no parsing needed
+      parsedOutput = output;
+    } else {
+      throw new Error(`Unexpected output type: ${typeof output}`);
+    }
+    
+    aiGeneratedOutput = parsedOutput;
+    
+    // Display the summary
+    outputSummary.innerHTML = `
+      <div class="output-summary-content">
+        <p>${parsedOutput.summary || "No summary available."}</p>
+        ${parsedOutput.rawResponse ? 
+          `<div class="raw-response">
+            <h3>Raw Response</h3>
+            <pre>${parsedOutput.rawResponse}</pre>
+           </div>` 
+          : ''}
+      </div>
+    `;
+    
+    // Display the fields
+    if (parsedOutput.fields && parsedOutput.fields.length > 0) {
+      let fieldsHTML = `
+        <table class="output-fields-table">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Value</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      parsedOutput.fields.forEach(field => {
+        const confidenceClass = getConfidenceClass(field.confidence);
+        fieldsHTML += `
+          <tr class="${confidenceClass}">
+            <td>${field.id}</td>
+            <td>${field.value || '(Empty)'}</td>
+            <td>${field.confidence}</td>
+          </tr>
+        `;
+      });
+      
+      fieldsHTML += `
+          </tbody>
+        </table>
+      `;
+      
+      outputFields.innerHTML = fieldsHTML;
+    } else {
+      if (parsedOutput.rawResponse) {
+        outputFields.innerHTML = `
+          <p>No structured fields were detected in the AI response.</p>
+        `;
+      } else {
+        outputFields.textContent = 'No fields were mapped by the AI.';
+      }
+    }
+    
+    // Add some styling for the output
+    const style = document.createElement('style');
+    style.textContent = `
+      .output-section {
+        margin-bottom: 30px;
+        padding: 15px;
+        background-color: var(--secondary-background);
+        border-radius: 5px;
+      }
+      
+      .output-summary-content {
+        line-height: 1.5;
+      }
+      
+      .raw-response {
+        margin-top: 15px;
+        padding: 10px;
+        background-color: rgba(0, 0, 0, 0.05);
+        border-radius: 5px;
+      }
+      
+      .raw-response pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      
+      .output-fields-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+      }
+      
+      .output-fields-table th,
+      .output-fields-table td {
+        text-align: left;
+        padding: 10px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      
+      .high-confidence {
+        background-color: rgba(76, 175, 80, 0.1);
+      }
+      
+      .medium-confidence {
+        background-color: rgba(255, 193, 7, 0.1);
+      }
+      
+      .low-confidence {
+        background-color: rgba(244, 67, 54, 0.1);
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Store the output in localStorage
+    localStorage.setItem('aiGeneratedOutput', JSON.stringify({
+      timestamp: Date.now(),
+      data: parsedOutput
+    }));
+    
+  } catch (error) {
+    console.error('Error parsing AI output:', error);
+    outputSummary.textContent = 'Error parsing AI output. The response may not be in the expected format.';
+    
+    // Display the raw response for debugging
+    outputFields.innerHTML = `
+      <div class="error-message">
+        <p>${error.message}</p>
+        <h4>Raw Response:</h4>
+        <pre style="white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; padding: 10px; background-color: rgba(0, 0, 0, 0.05); border-radius: 5px;">${output}</pre>
+      </div>
+    `;
+  }
+}
+
+// Function to get confidence class for styling
+function getConfidenceClass(confidence) {
+  const lowerConfidence = (confidence || '').toLowerCase();
+  
+  if (lowerConfidence === 'high') {
+    return 'high-confidence';
+  } else if (lowerConfidence === 'medium') {
+    return 'medium-confidence';
+  } else {
+    return 'low-confidence';
+  }
+}
+
+// Event listener for the Generate Output button
+generateOutputButton.addEventListener('click', async () => {
+  // Check if we have a resume and form data
+  const resumeData = localStorage.getItem('parsedResume');
+  const formDataStr = localStorage.getItem('extractedHTML');
+  
+  if (!resumeData) {
+    outputSummary.textContent = 'No resume data available. Please upload a resume first.';
+    return;
+  }
+  
+  if (!formDataStr) {
+    outputSummary.textContent = 'No form data available. Please extract a form first.';
+    return;
+  }
+  
+  // Show loading state
+  outputSummary.textContent = 'Generating output...';
+  outputFields.textContent = 'Please wait while the AI analyzes your resume and form fields...';
+  
+  try {
+    // Generate the prompt
+    const prompt = generatePrompt();
+    
+    if (prompt.startsWith('Error:')) {
+      outputSummary.textContent = prompt;
+      return;
+    }
+    
+    // Check if we have the API client
+    if (!agentsAPI) {
+      // Initialize the API client
+      const apiKey = localStorage.getItem('apiKey');
+      const baseURL = localStorage.getItem('apiBaseUrl') || 'https://api.openai.com/v1';
+      const model = localStorage.getItem('modelName') || 'gpt-4o';
+      
+      if (!apiKey) {
+        outputSummary.textContent = 'API key not set. Please add your API key in the Settings tab.';
+        return;
+      }
+      
+      agentsAPI = new AgentsAPI(apiKey, baseURL, model);
+    }
+    
+    // Send the prompt to the AI
+    const response = await agentsAPI.sendMessage(prompt);
+    
+    // Display the AI output
+    displayAIOutput(response);
+  } catch (error) {
+    console.error('Error generating output:', error);
+    outputSummary.textContent = 'Error generating output. Please try again.';
+    outputFields.textContent = error.message;
   }
 });
 
-// Handle enter key in chat input
-chatInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    sendButton.click();
+// Event listener for the Copy Output button
+copyOutputButton.addEventListener('click', () => {
+  // Get the AI output
+  const output = localStorage.getItem('aiGeneratedOutput');
+  
+  if (!output) {
+    alert('No output to copy. Please generate output first.');
+    return;
   }
+  
+  // Copy to clipboard
+  navigator.clipboard.writeText(output).then(() => {
+    const originalText = copyOutputButton.textContent;
+    copyOutputButton.textContent = 'Copied!';
+    setTimeout(() => {
+      copyOutputButton.textContent = originalText;
+    }, 2000);
+  });
 });
+
+// Event listener for the Clear Output button
+clearOutputButton.addEventListener('click', () => {
+  // Clear the output
+  localStorage.removeItem('aiGeneratedOutput');
+  aiGeneratedOutput = null;
+  
+  // Reset the UI
+  outputSummary.textContent = 'No summary available. Click "Generate Output" to analyze your resume and form fields.';
+  outputFields.textContent = 'No mapped fields available. Click "Generate Output" to match resume data to form fields.';
+});
+
+// Check if we already have AI output on page load
+function loadExistingOutput() {
+  const output = localStorage.getItem('aiGeneratedOutput');
+  
+  if (output) {
+    displayAIOutput(output);
+  }
+}
 
 // Application Data functionality
 const applicationData = document.getElementById('application-data');
@@ -731,8 +1038,80 @@ clearDataButton.addEventListener('click', () => {
   applicationData.innerHTML = 'No application data available. Use the "Refresh Data" button to load data.';
 });
 
-// Call the function to check URL parameters on page load
-checkUrlParameters();
+// AI Chat functionality
+const chatInput = document.getElementById('chat-input');
+const sendButton = document.getElementById('send-button');
+const chatbox = document.getElementById('chatbox');
+
+// Function to add a message to the chat
+function addMessage(message, isUser = false) {
+  const messageElement = document.createElement('div');
+  messageElement.classList.add('chat-message');
+  messageElement.classList.add(isUser ? 'user-message' : 'ai-message');
+  messageElement.textContent = message;
+  
+  chatbox.appendChild(messageElement);
+  
+  // Scroll to bottom of chat
+  chatbox.scrollTop = chatbox.scrollHeight;
+}
+
+// Initialize the AgentsAPI client with environment variables from .env
+async function initializeAgentsAPI() {
+  envVars = await loadEnvVars();
+  
+  // First check if we have saved values in localStorage
+  const apiKey = localStorage.getItem('apiKey') || envVars.OPENAI_API_KEY || '';
+  const baseURL = localStorage.getItem('apiBaseUrl') || envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
+  const model = localStorage.getItem('modelName') || envVars.MODEL_NAME || 'gpt-4o';
+  
+  // Update the settings form fields
+  document.getElementById('api-key').value = apiKey;
+  document.getElementById('api-base-url').value = baseURL;
+  document.getElementById('model-name').value = model;
+  
+  if (apiKey) {
+    agentsAPI = new AgentsAPI(apiKey, baseURL, model);
+    addMessage('API client initialized successfully. Ready to chat!');
+  } else {
+    addMessage('Please add your API key in the Settings tab to use the chat functionality.');
+  }
+}
+
+// Handle send button click
+sendButton.addEventListener('click', async () => {
+  const message = chatInput.value.trim();
+  if (message) {
+    addMessage(message, true);
+    chatInput.value = '';
+    
+    if (agentsAPI) {
+      // Show typing indicator
+      const typingIndicator = document.createElement('div');
+      typingIndicator.classList.add('chat-message', 'ai-message');
+      typingIndicator.textContent = 'Thinking...';
+      chatbox.appendChild(typingIndicator);
+      
+      // Make API call
+      const response = await agentsAPI.sendMessage(message);
+      
+      // Remove typing indicator
+      chatbox.removeChild(typingIndicator);
+      
+      // Display the response
+      addMessage(response);
+    } else {
+      addMessage('API client not initialized. Please check your API key in Settings.');
+    }
+  }
+});
+
+// Handle enter key in chat input
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    sendButton.click();
+  }
+});
 
 // Settings functionality
 const themeToggle = document.getElementById('theme-toggle');
@@ -838,9 +1217,13 @@ saveApiSettingsButton.addEventListener('click', () => {
   addMessage('API settings updated successfully!');
 });
 
-// Load settings and initialize API client on page load
+// Call the function to check URL parameters on page load
+checkUrlParameters();
+
+// Call initialization functions on page load
 loadSettings();
 initializeAgentsAPI();
+loadExistingOutput();
 
 // Initialize application data display on page load (if no extracted data)
 if (!localStorage.getItem('extractedHTML')) {

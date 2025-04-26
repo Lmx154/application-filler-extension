@@ -304,6 +304,7 @@
   <nav>
     <a href="#" id="nav-resume" class="active">Resume</a>
     <a href="#" id="nav-application">Application</a>
+    <a href="#" id="nav-output">Output</a>
     <a href="#" id="nav-ai">AI</a>
     <a href="#" id="nav-settings">Settings</a>
   </nav>
@@ -361,6 +362,32 @@
         <div class="data-field">
           <div class="field-name">Skills:</div>
           <div class="field-value">JavaScript, React, Node.js, Python, SQL, Git</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Output Page -->
+    <div id="page-output" class="page">
+      <h1>AI-Generated Output</h1>
+      <p>Form fields automatically filled using your resume information.</p>
+      
+      <div class="action-buttons">
+        <button id="generate-output" class="settings-button">Generate Output</button>
+        <button id="copy-output" class="settings-button">Copy All</button>
+        <button id="clear-output" class="settings-button">Clear Data</button>
+      </div>
+      
+      <div id="output-summary" class="output-section">
+        <h2>Summary</h2>
+        <div class="summary-content">
+          No summary available. Click "Generate Output" to analyze your resume and form fields.
+        </div>
+      </div>
+      
+      <div id="output-fields" class="output-section">
+        <h2>Form Fields</h2>
+        <div class="fields-container">
+          No mapped fields available. Click "Generate Output" to match resume data to form fields.
         </div>
       </div>
     </div>
