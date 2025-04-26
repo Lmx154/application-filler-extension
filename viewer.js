@@ -67,6 +67,24 @@ function switchToPage(pageName) {
   pages[pageName].classList.add('active');
 }
 
+// Check URL parameters for direct navigation
+function checkUrlParameters() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const section = urlParams.get('section');
+  
+  if (section && navLinks[section]) {
+    switchToPage(section);
+    
+    // If the section is application, check for extracted HTML
+    if (section === 'application') {
+      const extractedHTML = localStorage.getItem('extractedHTML');
+      if (extractedHTML) {
+        displayExtractedHTML(extractedHTML);
+      }
+    }
+  }
+}
+
 // PDF Processing functionality
 const input = document.getElementById('fileInput');
 const out = document.getElementById('output');
@@ -277,20 +295,65 @@ function updateApplicationDataDisplay() {
   }
 }
 
+// Function to display extracted HTML
+function displayExtractedHTML(html) {
+  applicationData.innerHTML = '';
+  
+  // Create a container for the HTML data
+  const htmlDataContainer = document.createElement('div');
+  htmlDataContainer.classList.add('data-field');
+  
+  const nameDiv = document.createElement('div');
+  nameDiv.classList.add('field-name');
+  nameDiv.textContent = 'Extracted HTML:';
+  
+  const valueDiv = document.createElement('div');
+  valueDiv.classList.add('field-value');
+  
+  // Create a pre element to preserve formatting
+  const preElement = document.createElement('pre');
+  preElement.style.whiteSpace = 'pre-wrap';
+  preElement.style.wordBreak = 'break-word';
+  preElement.style.maxHeight = '400px';
+  preElement.style.overflow = 'auto';
+  
+  // Escape HTML to show as text
+  preElement.textContent = html;
+  
+  valueDiv.appendChild(preElement);
+  htmlDataContainer.appendChild(nameDiv);
+  htmlDataContainer.appendChild(valueDiv);
+  applicationData.appendChild(htmlDataContainer);
+  
+  // Update currentApplicationData
+  currentApplicationData = { extractedHTML: html };
+}
+
 // Event listener for the Refresh Data button
 refreshDataButton.addEventListener('click', async () => {
   try {
-    // In a real implementation, this would fetch data from storage or an API
-    // For now, we'll just use the sample data
+    // Check if there's extracted HTML data
+    const extractedHTML = localStorage.getItem('extractedHTML');
     
-    // Show loading message
-    applicationData.textContent = 'Loading application data...';
-    
-    // Simulate a delay to show loading state
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Update the display
-    updateApplicationDataDisplay();
+    if (extractedHTML) {
+      // Show loading message
+      applicationData.textContent = 'Loading extracted HTML data...';
+      
+      // Simulate a delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Display the extracted HTML
+      displayExtractedHTML(extractedHTML);
+    } else {
+      // Show loading message
+      applicationData.textContent = 'Loading application data...';
+      
+      // Simulate a delay to show loading state
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Update the display with the sample data
+      updateApplicationDataDisplay();
+    }
   } catch (error) {
     applicationData.textContent = `Error loading application data: ${error.message}`;
   }
@@ -298,15 +361,22 @@ refreshDataButton.addEventListener('click', async () => {
 
 // Event listener for the Copy All button
 copyDataButton.addEventListener('click', () => {
-  // Convert the data to a formatted string
-  const dataString = Object.entries(currentApplicationData)
-    .map(([key, value]) => {
-      const formattedKey = key
-        .replace(/([A-Z])/g, ' $1')
-        .replace(/^./, str => str.toUpperCase());
-      return `${formattedKey}: ${value}`;
-    })
-    .join('\n');
+  let dataString;
+  
+  if (currentApplicationData.extractedHTML) {
+    // If we have HTML data, copy that directly
+    dataString = currentApplicationData.extractedHTML;
+  } else {
+    // Convert the data to a formatted string
+    dataString = Object.entries(currentApplicationData)
+      .map(([key, value]) => {
+        const formattedKey = key
+          .replace(/([A-Z])/g, ' $1')
+          .replace(/^./, str => str.toUpperCase());
+        return `${formattedKey}: ${value}`;
+      })
+      .join('\n');
+  }
   
   // Copy to clipboard
   navigator.clipboard.writeText(dataString).then(() => {
@@ -320,10 +390,16 @@ copyDataButton.addEventListener('click', () => {
 
 // Event listener for the Clear Data button
 clearDataButton.addEventListener('click', () => {
-  // In a real implementation, this would clear data from storage
+  // Clear extracted HTML from localStorage
+  localStorage.removeItem('extractedHTML');
+  
+  // Clear current application data
   currentApplicationData = {};
   updateApplicationDataDisplay();
 });
+
+// Call the function to check URL parameters on page load
+checkUrlParameters();
 
 // Settings functionality
 const themeToggle = document.getElementById('theme-toggle');

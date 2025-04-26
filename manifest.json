@@ -5,9 +5,15 @@
     "action": {
       "default_popup": "popup.html"
     },
-    "permissions": ["tabs"],
+    "permissions": [
+      "tabs",
+      "scripting",
+      "activeTab",
+      "storage"
+    ],
     "host_permissions": [
-      "https://rgvaiclass.com/*"
+      "https://rgvaiclass.com/*",
+      "<all_urls>"
     ],
     "background": {
       "scripts": ["background.js"]
