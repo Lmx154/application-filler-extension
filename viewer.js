@@ -37,12 +37,14 @@ let envVars = {};
 // Navigation functionality
 const navLinks = {
   resume: document.getElementById('nav-resume'),
+  application: document.getElementById('nav-application'),
   ai: document.getElementById('nav-ai'),
   settings: document.getElementById('nav-settings')
 };
 
 const pages = {
   resume: document.getElementById('page-resume'),
+  application: document.getElementById('page-application'),
   ai: document.getElementById('page-ai'),
   settings: document.getElementById('page-settings')
 };
@@ -223,6 +225,106 @@ chatInput.addEventListener('keypress', (e) => {
   }
 });
 
+// Application Data functionality
+const applicationData = document.getElementById('application-data');
+const refreshDataButton = document.getElementById('refresh-data');
+const copyDataButton = document.getElementById('copy-data');
+const clearDataButton = document.getElementById('clear-data');
+
+// Sample application data (for demo purposes)
+let currentApplicationData = {
+  "fullName": "John Doe",
+  "email": "john.doe@example.com",
+  "phone": "(123) 456-7890",
+  "address": "123 Main St, Anytown, US 12345",
+  "currentPosition": "Senior Software Developer",
+  "yearsOfExperience": "8",
+  "education": "Bachelor of Science in Computer Science",
+  "skills": "JavaScript, React, Node.js, Python, SQL, Git"
+};
+
+// Function to update the application data display
+function updateApplicationDataDisplay() {
+  applicationData.innerHTML = '';
+  
+  if (Object.keys(currentApplicationData).length === 0) {
+    applicationData.textContent = 'No application data available. Use the "Refresh Data" button to load data.';
+    return;
+  }
+  
+  // Create fields for each data point
+  for (const [key, value] of Object.entries(currentApplicationData)) {
+    const fieldDiv = document.createElement('div');
+    fieldDiv.classList.add('data-field');
+    
+    const nameDiv = document.createElement('div');
+    nameDiv.classList.add('field-name');
+    
+    // Convert camelCase to Title Case with spaces
+    const formattedKey = key
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, str => str.toUpperCase());
+    
+    nameDiv.textContent = `${formattedKey}:`;
+    
+    const valueDiv = document.createElement('div');
+    valueDiv.classList.add('field-value');
+    valueDiv.textContent = value;
+    
+    fieldDiv.appendChild(nameDiv);
+    fieldDiv.appendChild(valueDiv);
+    applicationData.appendChild(fieldDiv);
+  }
+}
+
+// Event listener for the Refresh Data button
+refreshDataButton.addEventListener('click', async () => {
+  try {
+    // In a real implementation, this would fetch data from storage or an API
+    // For now, we'll just use the sample data
+    
+    // Show loading message
+    applicationData.textContent = 'Loading application data...';
+    
+    // Simulate a delay to show loading state
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Update the display
+    updateApplicationDataDisplay();
+  } catch (error) {
+    applicationData.textContent = `Error loading application data: ${error.message}`;
+  }
+});
+
+// Event listener for the Copy All button
+copyDataButton.addEventListener('click', () => {
+  // Convert the data to a formatted string
+  const dataString = Object.entries(currentApplicationData)
+    .map(([key, value]) => {
+      const formattedKey = key
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase());
+      return `${formattedKey}: ${value}`;
+    })
+    .join('\n');
+  
+  // Copy to clipboard
+  navigator.clipboard.writeText(dataString).then(() => {
+    const originalText = copyDataButton.textContent;
+    copyDataButton.textContent = 'Copied!';
+    setTimeout(() => {
+      copyDataButton.textContent = originalText;
+    }, 2000);
+  });
+});
+
+// Event listener for the Clear Data button
+clearDataButton.addEventListener('click', () => {
+  // In a real implementation, this would clear data from storage
+  currentApplicationData = {};
+  updateApplicationDataDisplay();
+});
+
 // Settings functionality
 const themeToggle = document.getElementById('theme-toggle');
 const apiKeyInput = document.getElementById('api-key');
@@ -330,3 +432,6 @@ saveApiSettingsButton.addEventListener('click', () => {
 // Load settings and initialize API client on page load
 loadSettings();
 initializeAgentsAPI();
+
+// Initialize application data display on page load
+updateApplicationDataDisplay();
