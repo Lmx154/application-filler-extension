@@ -1,0 +1,15 @@
+{
+    "manifest_version": 3,
+    "name": "Resume → Markdown",
+    "version": "1.0",
+    "description": "Upload a PDF and convert it to Markdown—all client-side.",
+    "action": {
+      "default_popup": "popup.html"
+    },
+    "permissions": [],
+    "web_accessible_resources": [{
+      "resources": ["pdf.worker.min.js"],
+      "matches": ["<all_urls>"]
+    }]
+  }
+  

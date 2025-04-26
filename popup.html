@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Resume → MD</title>
+  <style>
+    body { font-family: sans-serif; width: 300px; padding: 10px; }
+    #output { white-space: pre-wrap; font-family: monospace; margin-top: 10px; max-height: 400px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h2>Upload PDF</h2>
+  <input type="file" id="fileInput" accept="application/pdf">
+  <div id="output">Parsed Markdown will appear here...</div>
+
+  <!-- pdf.js core -->
+  <script src="pdf.min.js"></script>
+  <!-- our logic -->
+  <script src="popup.js"></script>
+</body>
+</html>
