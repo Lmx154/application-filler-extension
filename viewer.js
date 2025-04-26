@@ -318,10 +318,35 @@ function displayAIOutput(output) {
     
     aiGeneratedOutput = parsedOutput;
     
-    // Display the summary
+    // Get the prompt that was used
+    const prompt = generatePrompt();
+    
+    // Calculate token usage
+    const tokenUsage = displayTokenUsage(prompt, output);
+    
+    // Display the summary with token usage information
     outputSummary.innerHTML = `
       <div class="output-summary-content">
         <p>${parsedOutput.summary || "No summary available."}</p>
+        
+        <div class="token-usage">
+          <h4>Token Usage Statistics</h4>
+          <div class="token-stats">
+            <div class="token-stat">
+              <div class="token-label">Prompt Tokens:</div>
+              <div class="token-value">${tokenUsage.promptTokens.toLocaleString()}</div>
+            </div>
+            <div class="token-stat">
+              <div class="token-label">Response Tokens:</div>
+              <div class="token-value">${tokenUsage.responseTokens.toLocaleString()}</div>
+            </div>
+            <div class="token-stat total-tokens">
+              <div class="token-label">Total Tokens:</div>
+              <div class="token-value">${tokenUsage.totalTokens.toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+        
         ${parsedOutput.rawResponse ? 
           `<div class="raw-response">
             <h3>Raw Response</h3>
@@ -386,6 +411,47 @@ function displayAIOutput(output) {
         line-height: 1.5;
       }
       
+      .token-usage {
+        margin-top: 20px;
+        padding: 10px 15px;
+        background-color: rgba(0, 0, 0, 0.05);
+        border-radius: 5px;
+        border-left: 4px solid var(--primary-color);
+      }
+      
+      .token-usage h4 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        color: var(--primary-color);
+      }
+      
+      .token-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+      
+      .token-stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 5px 0;
+      }
+      
+      .total-tokens {
+        margin-top: 8px;
+        font-weight: bold;
+        border-top: 1px solid var(--border-color);
+        padding-top: 8px;
+      }
+      
+      .token-value {
+        font-family: monospace;
+        background: rgba(0, 0, 0, 0.07);
+        padding: 2px 8px;
+        border-radius: 4px;
+      }
+      
       .raw-response {
         margin-top: 15px;
         padding: 10px;
@@ -427,10 +493,11 @@ function displayAIOutput(output) {
     `;
     document.head.appendChild(style);
     
-    // Store the output in localStorage
+    // Store the output in localStorage with token usage information
     localStorage.setItem('aiGeneratedOutput', JSON.stringify({
       timestamp: Date.now(),
-      data: parsedOutput
+      data: parsedOutput,
+      tokenUsage: tokenUsage
     }));
     
   } catch (error) {
@@ -1229,4 +1296,50 @@ loadExistingOutput();
 // Initialize application data display on page load (if no extracted data)
 if (!localStorage.getItem('extractedHTML')) {
   updateApplicationDataDisplay();
+}
+
+// Token counting utility functions
+function countTokens(text) {
+  // This is a simplified tokenization approach
+  // It approximates OpenAI's tokenization by counting:
+  // - Words (separated by spaces)
+  // - Punctuation
+  // - Special characters
+  // More accurate tokenization would require the actual tokenizer used by the model
+  
+  if (!text) return 0;
+  
+  // Remove extra whitespace
+  const cleanedText = text.trim().replace(/\s+/g, ' ');
+  
+  // Split by spaces to count words
+  const words = cleanedText.split(/\s+/);
+  
+  // Count punctuation and special characters
+  let specialCharCount = 0;
+  const specialCharsRegex = /[!"#$%&'()*+,-./:;<=>?@[\\\]^_`{|}~]/g;
+  const matches = cleanedText.match(specialCharsRegex);
+  if (matches) {
+    specialCharCount = matches.length;
+  }
+  
+  // Estimate tokens (this is a rough approximation)
+  // On average for English text, 1 token is approximately 4 characters
+  const charCount = cleanedText.length;
+  const estimatedTokens = Math.ceil(charCount / 4);
+  
+  return estimatedTokens;
+}
+
+// Function to display token usage information
+function displayTokenUsage(prompt, response) {
+  const promptTokens = countTokens(prompt);
+  const responseTokens = countTokens(response);
+  const totalTokens = promptTokens + responseTokens;
+  
+  return {
+    promptTokens,
+    responseTokens,
+    totalTokens
+  };
 }
