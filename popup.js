@@ -1,8 +1,19 @@
-// Tell pdf.js where its worker lives:
-pdfjsLib.GlobalWorkerOptions.workerSrc = browser.runtime.getURL('pdf.worker.min.js');
+// Import PDF.js as a module
+import * as pdfjsLib from './pdf.mjs';
+
+// Set the worker source to the worker file
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
 
 const input = document.getElementById('fileInput');
-const out   = document.getElementById('output');
+const out = document.getElementById('output');
+const openViewerButton = document.getElementById('openViewer');
+
+// Handle the "Open Full-Page Viewer" button click
+openViewerButton.addEventListener('click', () => {
+  browser.tabs.create({
+    url: browser.runtime.getURL("viewer.html")
+  });
+});
 
 input.addEventListener('change', async () => {
   const file = input.files[0];
@@ -19,14 +30,12 @@ input.addEventListener('change', async () => {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const strings = content.items.map(item => item.str);
-    fullText += strings.join(' ') + '\n';
+    fullText += content.items.map(item => item.str).join(' ') + '\n';
   }
 
   out.textContent = toMarkdown(fullText);
 });
 
-// super-simple text → Markdown
 function toMarkdown(text) {
   return text
     .split('\n')

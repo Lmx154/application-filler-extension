@@ -5,17 +5,35 @@
   <title>Resume → MD</title>
   <style>
     body { font-family: sans-serif; width: 300px; padding: 10px; }
-    #output { white-space: pre-wrap; font-family: monospace; margin-top: 10px; max-height: 400px; overflow: auto; }
+    #output {
+      white-space: pre-wrap;
+      font-family: monospace;
+      margin-top: 10px;
+      max-height: 200px;
+      overflow: auto;
+    }
+    .button {
+      display: inline-block;
+      background: #4285f4;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      text-decoration: none;
+      margin-top: 10px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <h2>Upload PDF</h2>
+  <p>Choose one of the following options:</p>
+  
   <input type="file" id="fileInput" accept="application/pdf">
-  <div id="output">Parsed Markdown will appear here...</div>
+  <div id="output">Parsed Markdown will appear here…</div>
+  
+  <a class="button" id="openViewer">Open Full-Page Viewer</a>
 
-  <!-- pdf.js core -->
-  <script src="pdf.min.js"></script>
-  <!-- our logic -->
-  <script src="popup.js"></script>
+  <!-- Use type="module" to load the PDF.js as ES module -->
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

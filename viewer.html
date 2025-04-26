@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PDF to Markdown Viewer</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+      line-height: 1.5;
+    }
+    h1 {
+      margin-top: 0;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 10px;
+    }
+    #fileInput {
+      margin: 20px 0;
+      padding: 10px;
+      width: 100%;
+      border: 2px dashed #ccc;
+      border-radius: 5px;
+      text-align: center;
+      cursor: pointer;
+    }
+    #output {
+      white-space: pre-wrap;
+      font-family: monospace;
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #e0e0e0;
+      border-radius: 5px;
+      background: #f9f9f9;
+      min-height: 300px;
+      max-height: 80vh;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>PDF to Markdown Converter</h1>
+  <p>Upload a PDF file to convert it to Markdown format.</p>
+  
+  <input type="file" id="fileInput" accept="application/pdf">
+  <div id="output">Parsed Markdown will appear here…</div>
+
+  <!-- Use type="module" to load the PDF.js as ES module -->
+  <script type="module" src="viewer.js"></script>
+</body>
+</html>
