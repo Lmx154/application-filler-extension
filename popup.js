@@ -28,13 +28,10 @@ extractDataButton.addEventListener('click', async () => {
 
     const activeTab = tabs[0];
     
-    // Instead of trying to message a possibly non-existent content script,
-    // directly inject and execute the script to extract HTML
+    // Inject and execute the script to extract form fields and autofill data
     chrome.scripting.executeScript({
       target: {tabId: activeTab.id},
-      func: () => {
-        return document.documentElement.outerHTML;
-      }
+      func: extractFormData
     }, (results) => {
       if (chrome.runtime.lastError) {
         console.error("Script injection error:", chrome.runtime.lastError);
@@ -42,21 +39,253 @@ extractDataButton.addEventListener('click', async () => {
       }
 
       if (results && results[0] && results[0].result) {
-        // Store the HTML in localStorage
-        localStorage.setItem('extractedHTML', results[0].result);
+        // Store the form data in localStorage
+        localStorage.setItem('extractedHTML', JSON.stringify(results[0].result));
+        localStorage.setItem('pageUrl', activeTab.url);
+        localStorage.setItem('pageTitle', activeTab.title);
         
         // Open the viewer page to display the data
         chrome.tabs.create({
           url: chrome.runtime.getURL("viewer.html?section=application")
         });
       } else {
-        console.error("Failed to extract HTML");
+        console.error("Failed to extract form data");
       }
     });
   } catch (error) {
-    console.error("Error extracting HTML:", error);
+    console.error("Error extracting form data:", error);
   }
 });
+
+// Function to extract form fields and autofill data from the page
+function extractFormData() {
+  // Create a result object to store all forms and fields
+  const result = {
+    forms: [],
+    autofillableFields: [],
+    pageAnalysis: {
+      totalForms: 0,
+      totalFields: 0,
+      autofillableFieldsCount: 0,
+      requiredFieldsCount: 0
+    }
+  };
+
+  // Get all forms in the document
+  const forms = document.forms;
+  result.pageAnalysis.totalForms = forms.length;
+
+  // Process each form
+  for (let i = 0; i < forms.length; i++) {
+    const form = forms[i];
+    const formData = {
+      id: form.id || `form_${i}`,
+      name: form.name || '',
+      method: form.method || '',
+      action: form.action || '',
+      fields: []
+    };
+
+    // Get all input elements within the form
+    const inputElements = form.querySelectorAll('input, select, textarea');
+    
+    for (let j = 0; j < inputElements.length; j++) {
+      const field = inputElements[j];
+      result.pageAnalysis.totalFields++;
+      
+      // Skip hidden, submit, reset, and button inputs
+      if (field.type === 'hidden' || field.type === 'submit' || 
+          field.type === 'reset' || field.type === 'button' ||
+          field.type === 'image') {
+        continue;
+      }
+
+      // Create a field object with relevant attributes
+      const fieldData = {
+        tagName: field.tagName.toLowerCase(),
+        type: field.type || '',
+        id: field.id || '',
+        name: field.name || '',
+        placeholder: field.placeholder || '',
+        value: field.value || '',
+        required: field.required || false,
+        autocomplete: field.getAttribute('autocomplete') || '',
+        label: getFieldLabel(field),
+        autofillable: isLikelyAutofillable(field)
+      };
+
+      // Count required fields
+      if (fieldData.required) {
+        result.pageAnalysis.requiredFieldsCount++;
+      }
+
+      // Count autofillable fields
+      if (fieldData.autofillable) {
+        result.pageAnalysis.autofillableFieldsCount++;
+        result.autofillableFields.push(fieldData);
+      }
+
+      formData.fields.push(fieldData);
+    }
+
+    // Only add the form if it has visible fields
+    if (formData.fields.length > 0) {
+      result.forms.push(formData);
+    }
+  }
+
+  // Also look for standalone input fields outside of forms
+  // that might be part of dynamically generated forms
+  const standaloneFields = document.querySelectorAll('body > input:not(form input), body > select:not(form select), body > textarea:not(form textarea), [role="form"] input, [role="form"] select, [role="form"] textarea, .form input, .form select, .form textarea');
+  
+  if (standaloneFields.length > 0) {
+    const virtualForm = {
+      id: 'virtual_form',
+      name: 'Standalone Fields',
+      fields: []
+    };
+
+    for (let i = 0; i < standaloneFields.length; i++) {
+      const field = standaloneFields[i];
+      result.pageAnalysis.totalFields++;
+      
+      // Skip hidden, submit, reset, and button inputs
+      if (field.type === 'hidden' || field.type === 'submit' || 
+          field.type === 'reset' || field.type === 'button' ||
+          field.type === 'image') {
+        continue;
+      }
+
+      // Create a field object with relevant attributes
+      const fieldData = {
+        tagName: field.tagName.toLowerCase(),
+        type: field.type || '',
+        id: field.id || '',
+        name: field.name || '',
+        placeholder: field.placeholder || '',
+        value: field.value || '',
+        required: field.required || false,
+        autocomplete: field.getAttribute('autocomplete') || '',
+        label: getFieldLabel(field),
+        autofillable: isLikelyAutofillable(field)
+      };
+
+      // Count required fields
+      if (fieldData.required) {
+        result.pageAnalysis.requiredFieldsCount++;
+      }
+
+      // Count autofillable fields
+      if (fieldData.autofillable) {
+        result.pageAnalysis.autofillableFieldsCount++;
+        result.autofillableFields.push(fieldData);
+      }
+
+      virtualForm.fields.push(fieldData);
+    }
+
+    // Only add the virtual form if it has fields
+    if (virtualForm.fields.length > 0) {
+      result.forms.push(virtualForm);
+    }
+  }
+
+  return result;
+
+  // Helper function to determine if a field is likely to be autofillable
+  function isLikelyAutofillable(field) {
+    // Check if field has autocomplete attribute
+    if (field.getAttribute('autocomplete') && 
+        field.getAttribute('autocomplete') !== 'off') {
+      return true;
+    }
+    
+    const fieldName = field.name.toLowerCase();
+    const fieldId = field.id.toLowerCase();
+    const placeholder = (field.placeholder || '').toLowerCase();
+    const fieldType = field.type;
+    
+    // Common autofillable field patterns
+    const autofillPatterns = [
+      // Personal info
+      'name', 'fullname', 'firstname', 'fname', 'first-name', 'first_name',
+      'lastname', 'lname', 'last-name', 'last_name', 'middle', 
+      'email', 'mail', 'e-mail', 'phone', 'mobile', 'tel', 'telephone',
+      'zip', 'zipcode', 'postal', 'post-code', 'postcode',
+      'address', 'street', 'city', 'state', 'country', 'province',
+      'birth', 'birthday', 'dob', 'date-of-birth', 'gender', 'sex',
+      
+      // Payment
+      'card', 'credit', 'credit-card', 'cc-', 'ccnum', 'cardnumber',
+      'cvv', 'cvc', 'cvv2', 'csc', 'expiry', 'expiration',
+      
+      // Account
+      'user', 'username', 'userid', 'login', 'password', 'pwd', 'pass',
+      
+      // Occupation
+      'occupation', 'job', 'title', 'position', 'role', 'company',
+      'organization', 'employer'
+    ];
+    
+    // Check if any pattern matches field name, id, or placeholder
+    for (const pattern of autofillPatterns) {
+      if (fieldName.includes(pattern) || 
+          fieldId.includes(pattern) || 
+          placeholder.includes(pattern)) {
+        return true;
+      }
+    }
+    
+    // Check field types that are commonly autofilled
+    if (['text', 'email', 'tel', 'url', 'number', 'date', 
+         'password', 'search'].includes(fieldType)) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  // Helper function to get field label text
+  function getFieldLabel(field) {
+    // First check for explicit label with 'for' attribute
+    if (field.id) {
+      const label = document.querySelector(`label[for="${field.id}"]`);
+      if (label && label.textContent.trim()) {
+        return label.textContent.trim();
+      }
+    }
+    
+    // Check for parent label (when input is inside label)
+    let parent = field.parentElement;
+    while (parent) {
+      if (parent.tagName === 'LABEL') {
+        // Get text content excluding child input values
+        return Array.from(parent.childNodes)
+          .filter(node => node.nodeType === Node.TEXT_NODE)
+          .map(node => node.textContent.trim())
+          .join(' ')
+          .trim();
+      }
+      
+      // Check if there's a label-like element nearby
+      const labelLike = parent.querySelector('.label, .form-label, .field-label');
+      if (labelLike && labelLike.textContent.trim()) {
+        return labelLike.textContent.trim();
+      }
+      
+      // Move up one level
+      parent = parent.parentElement;
+      
+      // Avoid going too far up the DOM tree
+      if (parent === document.body) {
+        break;
+      }
+    }
+    
+    // If no label found, use name, id, or placeholder as fallback
+    return field.placeholder || field.name || field.id || '';
+  }
+}
 
 input.addEventListener('change', async () => {
   const file = input.files[0];
