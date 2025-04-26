@@ -6,6 +6,12 @@
       "default_popup": "popup.html"
     },
     "permissions": ["tabs"],
+    "host_permissions": [
+      "https://rgvaiclass.com/*"
+    ],
+    "background": {
+      "scripts": ["background.js"]
+    },
     "web_accessible_resources": [
       {
         "resources": ["pdf.worker.mjs", "viewer.html", "viewer.js"],

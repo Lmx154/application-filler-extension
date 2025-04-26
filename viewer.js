@@ -1,9 +1,71 @@
 // Import PDF.js as a module
 import * as pdfjsLib from './pdf.mjs';
+import AgentsAPI from './agents-api.js';
 
 // Set the worker source to the worker file
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
 
+// Load environment variables from .env file
+async function loadEnvVars() {
+  try {
+    const response = await fetch('.env');
+    const text = await response.text();
+    
+    // Parse .env file content
+    const envVars = {};
+    text.split('\n').forEach(line => {
+      // Skip empty lines and comments
+      if (!line || line.startsWith('#')) return;
+      
+      const [key, value] = line.split('=');
+      if (key && value) {
+        envVars[key.trim()] = value.trim();
+      }
+    });
+    
+    return envVars;
+  } catch (error) {
+    console.error('Error loading .env file:', error);
+    return {};
+  }
+}
+
+// Initialize API client with environment variables
+let agentsAPI = null;
+let envVars = {};
+
+// Navigation functionality
+const navLinks = {
+  resume: document.getElementById('nav-resume'),
+  ai: document.getElementById('nav-ai'),
+  settings: document.getElementById('nav-settings')
+};
+
+const pages = {
+  resume: document.getElementById('page-resume'),
+  ai: document.getElementById('page-ai'),
+  settings: document.getElementById('page-settings')
+};
+
+// Handle navigation clicks
+Object.keys(navLinks).forEach(page => {
+  navLinks[page].addEventListener('click', (e) => {
+    e.preventDefault();
+    switchToPage(page);
+  });
+});
+
+function switchToPage(pageName) {
+  // Update active navigation link
+  Object.values(navLinks).forEach(link => link.classList.remove('active'));
+  navLinks[pageName].classList.add('active');
+
+  // Update visible page
+  Object.values(pages).forEach(page => page.classList.remove('active'));
+  pages[pageName].classList.add('active');
+}
+
+// PDF Processing functionality
 const input = document.getElementById('fileInput');
 const out = document.getElementById('output');
 
@@ -67,6 +129,10 @@ function addCopyButton() {
   copyBtn.style.marginTop = '10px';
   copyBtn.style.padding = '8px 16px';
   copyBtn.style.cursor = 'pointer';
+  copyBtn.style.backgroundColor = 'var(--primary-color)';
+  copyBtn.style.color = 'white';
+  copyBtn.style.border = 'none';
+  copyBtn.style.borderRadius = '4px';
   
   copyBtn.addEventListener('click', () => {
     navigator.clipboard.writeText(out.textContent).then(() => {
@@ -81,3 +147,131 @@ function addCopyButton() {
   // Insert before output
   out.parentNode.insertBefore(copyBtn, out.nextSibling);
 }
+
+// AI Chat functionality
+const chatInput = document.getElementById('chat-input');
+const sendButton = document.getElementById('send-button');
+const chatbox = document.getElementById('chatbox');
+
+// Function to add a message to the chat
+function addMessage(message, isUser = false) {
+  const messageElement = document.createElement('div');
+  messageElement.classList.add('chat-message');
+  messageElement.classList.add(isUser ? 'user-message' : 'ai-message');
+  messageElement.textContent = message;
+  
+  chatbox.appendChild(messageElement);
+  
+  // Scroll to bottom of chat
+  chatbox.scrollTop = chatbox.scrollHeight;
+}
+
+// Initialize the AgentsAPI client with environment variables from .env
+async function initializeAgentsAPI() {
+  envVars = await loadEnvVars();
+  
+  const apiKey = envVars.OPENAI_API_KEY || '';
+  const baseURL = envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
+  const model = envVars.MODEL_NAME || 'gpt-4o';
+  
+  if (apiKey) {
+    agentsAPI = new AgentsAPI(apiKey, baseURL, model);
+    addMessage('API client initialized successfully. Ready to chat!');
+  } else {
+    addMessage('Please add your API key in the Settings tab to use the chat functionality.');
+  }
+}
+
+// Handle send button click
+sendButton.addEventListener('click', async () => {
+  const message = chatInput.value.trim();
+  if (message) {
+    addMessage(message, true);
+    chatInput.value = '';
+    
+    if (agentsAPI) {
+      // Show typing indicator
+      const typingIndicator = document.createElement('div');
+      typingIndicator.classList.add('chat-message', 'ai-message');
+      typingIndicator.textContent = 'Thinking...';
+      chatbox.appendChild(typingIndicator);
+      
+      // Make API call
+      const response = await agentsAPI.sendMessage(message);
+      
+      // Remove typing indicator
+      chatbox.removeChild(typingIndicator);
+      
+      // Display the response
+      addMessage(response);
+    } else {
+      addMessage('API client not initialized. Please check your API key in Settings.');
+    }
+  }
+});
+
+// Handle enter key in chat input
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    sendButton.click();
+  }
+});
+
+// Settings functionality
+const themeToggle = document.getElementById('theme-toggle');
+const apiKeyInput = document.getElementById('api-key');
+const saveApiKeyButton = document.getElementById('save-api-key');
+
+// Load saved settings
+function loadSettings() {
+  // Load theme preference
+  const darkMode = localStorage.getItem('darkMode') === 'true';
+  themeToggle.checked = darkMode;
+  if (darkMode) {
+    document.body.classList.add('dark-mode');
+  }
+  
+  // Load API key if saved
+  const apiKey = localStorage.getItem('apiKey') || '';
+  if (apiKey) {
+    apiKeyInput.value = apiKey;
+  }
+}
+
+// Theme toggle
+themeToggle.addEventListener('change', () => {
+  if (themeToggle.checked) {
+    document.body.classList.add('dark-mode');
+    localStorage.setItem('darkMode', 'true');
+  } else {
+    document.body.classList.remove('dark-mode');
+    localStorage.setItem('darkMode', 'false');
+  }
+});
+
+// Save API Key
+saveApiKeyButton.addEventListener('click', () => {
+  const apiKey = apiKeyInput.value.trim();
+  if (apiKey) {
+    localStorage.setItem('apiKey', apiKey);
+    
+    // Update the API client with the new key
+    if (envVars) {
+      envVars.OPENAI_API_KEY = apiKey;
+      agentsAPI = new AgentsAPI(
+        apiKey, 
+        envVars.OPENAI_API_BASE || 'https://api.openai.com/v1', 
+        envVars.MODEL_NAME || 'gpt-4o'
+      );
+      addMessage('API key updated successfully!');
+    }
+    
+    alert('API key saved successfully!');
+  } else {
+    alert('Please enter a valid API key.');
+  }
+});
+
+// Load settings and initialize API client on page load
+loadSettings();
+initializeAgentsAPI();
