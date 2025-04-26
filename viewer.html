@@ -228,6 +228,41 @@
     input:checked + .slider:before {
       transform: translateX(30px);
     }
+    
+    .settings-button {
+      display: inline-block;
+      background-color: var(--primary-color);
+      color: white;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    
+    .settings-button:hover {
+      opacity: 0.9;
+    }
+    
+    .status-message {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      display: none;
+    }
+    
+    .status-success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .status-error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
   </style>
 </head>
 <body>
@@ -272,9 +307,22 @@
           <label for="api-key">API Key:</label>
           <input type="password" id="api-key" class="settings-input" placeholder="Enter your API key">
         </div>
+        
         <div class="settings-row">
-          <button id="save-api-key" class="settings-input">Save API Key</button>
+          <label for="api-base-url">API Base URL:</label>
+          <input type="text" id="api-base-url" class="settings-input" placeholder="https://api.openai.com/v1">
         </div>
+        
+        <div class="settings-row">
+          <label for="model-name">Model Name:</label>
+          <input type="text" id="model-name" class="settings-input" placeholder="gpt-4o">
+        </div>
+        
+        <div class="settings-row">
+          <button id="save-api-settings" class="settings-button">Save API Settings</button>
+        </div>
+        
+        <div id="api-status-message" class="status-message"></div>
       </div>
       
       <div class="settings-section">

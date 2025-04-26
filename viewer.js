@@ -170,9 +170,15 @@ function addMessage(message, isUser = false) {
 async function initializeAgentsAPI() {
   envVars = await loadEnvVars();
   
-  const apiKey = envVars.OPENAI_API_KEY || '';
-  const baseURL = envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
-  const model = envVars.MODEL_NAME || 'gpt-4o';
+  // First check if we have saved values in localStorage
+  const apiKey = localStorage.getItem('apiKey') || envVars.OPENAI_API_KEY || '';
+  const baseURL = localStorage.getItem('apiBaseUrl') || envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
+  const model = localStorage.getItem('modelName') || envVars.MODEL_NAME || 'gpt-4o';
+  
+  // Update the settings form fields
+  document.getElementById('api-key').value = apiKey;
+  document.getElementById('api-base-url').value = baseURL;
+  document.getElementById('model-name').value = model;
   
   if (apiKey) {
     agentsAPI = new AgentsAPI(apiKey, baseURL, model);
@@ -220,7 +226,10 @@ chatInput.addEventListener('keypress', (e) => {
 // Settings functionality
 const themeToggle = document.getElementById('theme-toggle');
 const apiKeyInput = document.getElementById('api-key');
-const saveApiKeyButton = document.getElementById('save-api-key');
+const apiBaseUrlInput = document.getElementById('api-base-url');
+const modelNameInput = document.getElementById('model-name');
+const saveApiSettingsButton = document.getElementById('save-api-settings');
+const apiStatusMessage = document.getElementById('api-status-message');
 
 // Load saved settings
 function loadSettings() {
@@ -231,10 +240,21 @@ function loadSettings() {
     document.body.classList.add('dark-mode');
   }
   
-  // Load API key if saved
+  // Load API settings
   const apiKey = localStorage.getItem('apiKey') || '';
+  const apiBaseUrl = localStorage.getItem('apiBaseUrl') || '';
+  const modelName = localStorage.getItem('modelName') || '';
+  
   if (apiKey) {
     apiKeyInput.value = apiKey;
+  }
+  
+  if (apiBaseUrl) {
+    apiBaseUrlInput.value = apiBaseUrl;
+  }
+  
+  if (modelName) {
+    modelNameInput.value = modelName;
   }
 }
 
@@ -249,27 +269,62 @@ themeToggle.addEventListener('change', () => {
   }
 });
 
-// Save API Key
-saveApiKeyButton.addEventListener('click', () => {
-  const apiKey = apiKeyInput.value.trim();
-  if (apiKey) {
-    localStorage.setItem('apiKey', apiKey);
-    
-    // Update the API client with the new key
-    if (envVars) {
-      envVars.OPENAI_API_KEY = apiKey;
-      agentsAPI = new AgentsAPI(
-        apiKey, 
-        envVars.OPENAI_API_BASE || 'https://api.openai.com/v1', 
-        envVars.MODEL_NAME || 'gpt-4o'
-      );
-      addMessage('API key updated successfully!');
-    }
-    
-    alert('API key saved successfully!');
+// Show status message
+function showStatusMessage(message, isSuccess = true) {
+  apiStatusMessage.textContent = message;
+  apiStatusMessage.style.display = 'block';
+  
+  if (isSuccess) {
+    apiStatusMessage.classList.add('status-success');
+    apiStatusMessage.classList.remove('status-error');
   } else {
-    alert('Please enter a valid API key.');
+    apiStatusMessage.classList.add('status-error');
+    apiStatusMessage.classList.remove('status-success');
   }
+  
+  // Hide the message after 3 seconds
+  setTimeout(() => {
+    apiStatusMessage.style.display = 'none';
+  }, 3000);
+}
+
+// Save API Settings
+saveApiSettingsButton.addEventListener('click', () => {
+  const apiKey = apiKeyInput.value.trim();
+  const apiBaseUrl = apiBaseUrlInput.value.trim();
+  const modelName = modelNameInput.value.trim();
+  
+  if (!apiKey) {
+    showStatusMessage('Please enter a valid API key', false);
+    return;
+  }
+  
+  // Save to localStorage
+  localStorage.setItem('apiKey', apiKey);
+  
+  if (apiBaseUrl) {
+    localStorage.setItem('apiBaseUrl', apiBaseUrl);
+  } else {
+    localStorage.removeItem('apiBaseUrl');
+  }
+  
+  if (modelName) {
+    localStorage.setItem('modelName', modelName);
+  } else {
+    localStorage.removeItem('modelName');
+  }
+  
+  // Update the API client with the new settings
+  const baseUrl = apiBaseUrl || envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
+  const model = modelName || envVars.MODEL_NAME || 'gpt-4o';
+  
+  agentsAPI = new AgentsAPI(apiKey, baseUrl, model);
+  
+  // Show success message
+  showStatusMessage('API settings saved successfully!');
+  
+  // Add message to chat
+  addMessage('API settings updated successfully!');
 });
 
 // Load settings and initialize API client on page load
