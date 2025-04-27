@@ -35,7 +35,7 @@ export function generatePrompt() {
   }
   
   // Generate a prompt for the AI
-  let prompt = `I need your help to fill out an application form using information from my resume. 
+  let prompt = `I need you to fill out a job application form using my resume information. 
 
 RESUME CONTENT:
 ${resume}
@@ -115,33 +115,7 @@ FORM FIELDS:
     return 'Error: No form fields found. Please extract a form first.';
   }
   
-  prompt += `\nPlease analyze the resume and provide values for these form fields based ONLY on information present in the resume. 
-For each field, use EXACTLY the field ID/name I provided in the "Field ID/Name" as the key in your JSON response.
-For example, if I have a field with Field ID/Name: "_systemfield_email" or "d727c1e4-3750-4506-88be-1180535fc608", use that exact value as the key in your JSON.
-
-For each field, provide:
-1. The exact field ID/name as the key
-2. The suggested value based on the resume content
-3. Your confidence level (High/Medium/Low) for this mapping
-
-If a field has no corresponding information in the resume, mark it as "No information available" with Low confidence.
-Do NOT make up or invent any information that is not explicitly in the resume.
-
-This is a JavaScript-based form with dynamically generated field IDs, so it's CRITICAL that you use the exact field ID/name I provided.
-
-IMPORTANT: Return ONLY a valid JSON object without any markdown formatting (no \`\`\` characters). Your entire response should be parseable as JSON.
-Format your response exactly as follows:
-{
-  "fields": [
-    {
-      "id": "EXACT_FIELD_ID_OR_NAME",
-      "value": "suggested value from resume",
-      "confidence": "High/Medium/Low"
-    },
-    ...
-  ],
-  "summary": "A brief summary of how well the resume matches the form fields overall."
-}`;
+  prompt += `\nINSTRUCTIONS:\r\n1. Analyze my resume and provide values for each form field based ONLY on information found in my resume.\r\n2. For each field, use EXACTLY the field ID/name I provided above as the \"id\" in your response.\r\n3. If a field has no corresponding information in my resume, mark its value as \"No information available\" with Low confidence.\r\n4. DO NOT make up or invent any information that is not explicitly mentioned in my resume.\r\n\r\nJSON RESPONSE STRUCTURE:\r\n{\r\n  \"fields\": [\r\n    {\r\n      \"id\": \"EXACT_FIELD_ID\",\r\n      \"value\": \"value from resume\",\r\n      \"confidence\": \"High/Medium/Low\"\r\n    },\r\n    ...more fields...\r\n  ],\r\n  \"summary\": \"Brief summary of how well the resume matches the form fields\"\r\n}\r\n\r\nCRITICAL FORMATTING INSTRUCTIONS:\r\n- Your response MUST be ONLY the JSON object described above.\r\n- Start the response *immediately* with the opening curly brace '{'.\r\n- End the response *immediately* with the closing curly brace '}'.\r\n- There should be absolutely NO text, comments, or explanations before the opening '{' or after the closing '}'.\r\n\r\nRemember: Only the raw JSON object.`;
 
   return prompt;
 }

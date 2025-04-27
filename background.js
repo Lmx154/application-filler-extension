@@ -3,12 +3,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "makeApiCall") {
     const { url, method, headers, body } = request;
     
-    fetch(url, {
+    // Determine if this is a local API call
+    const isLocalCall = url.includes('localhost') || 
+                       url.includes('127.0.0.1') || 
+                       url.includes('::1');
+    
+    // Prepare fetch options with proper CORS settings
+    const options = {
       method: method || "POST",
       headers: headers || {},
-      body: JSON.stringify(body)
-    })
+      // Add mode and credentials for local API calls
+      mode: isLocalCall ? 'cors' : 'same-origin',
+      credentials: isLocalCall ? 'omit' : 'same-origin'
+    };
+    
+    // Add body if provided
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+    
+    console.log(`Making API request to: ${url}`, options);
+    
+    fetch(url, options)
     .then(response => {
+      console.log(`Response from ${url}:`, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: [...response.headers.entries()].reduce((obj, [key, val]) => {
+          obj[key] = val;
+          return obj;
+        }, {})
+      });
+      
       if (!response.ok) {
         throw new Error(`HTTP error! Status: ${response.status}`);
       }

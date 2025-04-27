@@ -4,15 +4,23 @@
  */
 
 import * as pdfjsLib from './pdf.mjs';
-import AgentsAPI from './agents-api.js';
+import AgentsAPI, { AIProviderFactory } from './agents-api.js';
 import { addCopyButton, showStatusMessage, getConfidenceClass, addOutputStyles, addApplicationDataStyles } from './viewer-styles.js';
 import { generatePrompt, calculateTokenUsage } from './prompt-generator.js';
 
 // Set the worker source to the worker file
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
 
-// Shared state
-export let agentsAPI = null;
+// Shared state - using a writable object to store agentsAPI
+const state = {
+  agentsAPI: null
+};
+
+// Export accessor functions to get/set agentsAPI
+export const getAgentsAPI = () => state.agentsAPI;
+export const setAgentsAPI = (api) => { state.agentsAPI = api; };
+
+// Other exports
 export let envVars = {};
 export let parsedResume = '';
 export let formData = null;
@@ -673,7 +681,7 @@ export async function initializeAgentsAPI() {
   document.getElementById('model-name').value = model;
   
   if (apiKey) {
-    agentsAPI = new AgentsAPI(apiKey, baseURL, model);
+    setAgentsAPI(new AgentsAPI(apiKey, baseURL, model));
     return true;
   } else {
     return false;
