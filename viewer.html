@@ -187,8 +187,8 @@
     .toggle-switch {
       position: relative;
       display: inline-block;
-      width: 60px;
-      height: 30px;
+      width: 50px;
+      height: 24px;
     }
 
     .toggle-switch input {
@@ -206,14 +206,14 @@
       bottom: 0;
       background-color: #ccc;
       transition: .4s;
-      border-radius: 30px;
+      border-radius: 24px;
     }
 
     .slider:before {
       position: absolute;
       content: "";
-      height: 22px;
-      width: 22px;
+      height: 16px;
+      width: 16px;
       left: 4px;
       bottom: 4px;
       background-color: white;
@@ -226,7 +226,7 @@
     }
 
     input:checked + .slider:before {
-      transform: translateX(30px);
+      transform: translateX(26px);
     }
     
     .settings-button {
@@ -312,11 +312,11 @@
   <div class="container">
     <!-- Resume Page -->
     <div id="page-resume" class="page active">
-      <h1>PDF to Markdown Converter</h1>
-      <p>Upload a PDF file to convert it to Markdown format.</p>
+      <h1>Upload Your Resume</h1>
+      <p>Upload a PDF file of your resume to begin.</p>
       
       <input type="file" id="fileInput" accept="application/pdf">
-      <div id="output">Parsed Markdown will appear here…</div>
+      <div id="output">Parsed resume content will appear here…</div>
     </div>
 
     <!-- Application Data Page -->

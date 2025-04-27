@@ -1191,11 +1191,13 @@ const apiStatusMessage = document.getElementById('api-status-message');
 
 // Load saved settings
 function loadSettings() {
-  // Load theme preference
-  const darkMode = localStorage.getItem('darkMode') === 'true';
+  // Load theme preference - default to dark mode if not set
+  const darkMode = localStorage.getItem('darkMode') !== 'false';
   themeToggle.checked = darkMode;
   if (darkMode) {
     document.body.classList.add('dark-mode');
+  } else {
+    document.body.classList.remove('dark-mode');
   }
   
   // Load API settings
