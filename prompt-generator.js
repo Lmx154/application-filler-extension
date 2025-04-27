@@ -5,9 +5,10 @@
 
 /**
  * Generate an AI prompt based on resume data and form fields
+ * @param {boolean} isLocalModel - Whether we're using a local model like Ollama or LMStudio
  * @returns {string} The generated prompt or error message
  */
-export function generatePrompt() {
+export function generatePrompt(isLocalModel = false) {
   // Get the resume data
   const resume = localStorage.getItem('parsedResume') || '';
   
@@ -34,19 +35,13 @@ export function generatePrompt() {
     return 'Error: No form data available. Please extract form data first.';
   }
   
-  // Generate a prompt for the AI
-  let prompt = `I need you to fill out a job application form using my resume information. 
-
-RESUME CONTENT:
-${resume}
-
-FORM FIELDS:
-`;
-
   // Create a set to track field IDs we've already added to prevent duplicates
   const processedFieldIds = new Set();
   
-  // First add all autofillable fields to the prompt
+  // Collect the form fields
+  const formFields = [];
+  
+  // First add all autofillable fields
   if (autofillableFields.length > 0) {
     autofillableFields.forEach(field => {
       // Use name or ID as the field identifier, with fallbacks for dynamic JS forms
@@ -74,13 +69,16 @@ FORM FIELDS:
         processedFieldIds.add(fieldIdentifier);
         
         const fieldLabel = field.label || fieldIdentifier;
-        prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
+        formFields.push({
+          id: fieldIdentifier,
+          label: fieldLabel,
+          type: field.type
+        });
       }
     });
   } else if (forms.length > 0) {
     // Fallback to listing all form fields if no autofillable fields were detected
     forms.forEach(form => {
-      prompt += `Form: ${form.name || form.id}\n`;
       form.fields.forEach(field => {
         // Use name or ID as the field identifier, with fallbacks
         let fieldIdentifier = field.name || field.id || '';
@@ -107,13 +105,78 @@ FORM FIELDS:
           processedFieldIds.add(fieldIdentifier);
           
           const fieldLabel = field.label || fieldIdentifier;
-          prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
+          formFields.push({
+            id: fieldIdentifier,
+            label: fieldLabel,
+            type: field.type
+          });
         }
       });
     });
   } else {
     return 'Error: No form fields found. Please extract a form first.';
   }
+
+  // For local models, use the simplified prompt structure
+  if (isLocalModel) {
+    // Import the formatPrompt function from agents-api.js (client-side only)
+    if (typeof window !== 'undefined' && window.formatPrompt) {
+      return window.formatPrompt(resume, formFields);
+    }
+    
+    // Fallback to a simpler prompt structure for local models
+    let prompt = `TASK: Fill job application form using resume information.
+
+RESUME:
+${resume}
+
+FORM FIELDS TO FILL:
+`;
+
+    formFields.forEach(field => {
+      // Include both ID and label for context
+      const labelText = field.label && field.label.trim() !== '' 
+        ? `${field.label} (${field.id})` 
+        : field.id;
+      
+      prompt += `- ${labelText} (${field.type})\n`;
+    });
+
+    prompt += `
+INSTRUCTIONS:
+1. Use ONLY information from the resume
+2. For each field ID, provide a suitable value
+3. Mark unknown fields as "No information available" with Low confidence
+4. Do not make up information
+
+RESPONSE FORMAT:
+Return a JSON object with this structure:
+{
+  "fields": [
+    {
+      "id": "field_id",
+      "value": "value from resume",
+      "confidence": "High/Medium/Low"
+    }
+  ],
+  "summary": "Brief resume analysis"
+}`;
+
+    return prompt;
+  }
+  
+  // For cloud models, use the detailed prompt
+  let prompt = `I need you to fill out a job application form using my resume information. 
+
+RESUME CONTENT:
+${resume}
+
+FORM FIELDS:
+`;
+
+  formFields.forEach(field => {
+    prompt += `- ${field.label} (Field ID/Name: "${field.id}", Type: ${field.type})\n`;
+  });
   
   prompt += `\nINSTRUCTIONS:
 1. Analyze my resume and provide values for each form field based ONLY on information found in my resume.

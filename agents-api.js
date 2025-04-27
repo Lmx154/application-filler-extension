@@ -661,6 +661,197 @@ class OllamaProvider extends BaseAIProvider {
       throw error;
     }
   }
+
+  /**
+   * Send a function calling message to Mistral models
+   * @param {Array} messages - Array of message objects
+   * @param {Array} tools - Array of tool definitions
+   * @param {Object} options - Options for the function calling
+   * @returns {Promise<Object>} - The response from the API
+   */
+  async sendFunctionCallingMessage(messages, tools, options = {}) {
+    try {
+      const isMistralModel = this.model.toLowerCase().includes('mistral') || 
+                            this.model.toLowerCase().includes('nemo');
+      
+      if (!isMistralModel) {
+        console.warn('Function calling is optimized for Mistral models, falling back to standard chat');
+        return await this.sendMessage(messages[messages.length-1].content);
+      }
+      
+      console.log("Using Mistral function calling format with", tools.length, "tools");
+      
+      // Format the system message to emphasize function calling
+      let hasSystemMessage = false;
+      for (let i = 0; i < messages.length; i++) {
+        if (messages[i].role === 'system') {
+          hasSystemMessage = true;
+          // Append function calling instructions to system message
+          messages[i].content += "\n\nIMPORTANT: You MUST use the provided tools by directly calling the functions. DO NOT describe what you would do or suggest function calls - make the actual function calls instead. For example, don't say 'I would use fill_field()', actually call the function with valid arguments.";
+          break;
+        }
+      }
+      
+      // Add a system message if none exists
+      if (!hasSystemMessage) {
+        messages.unshift({
+          role: 'system',
+          content: 'You are a helpful assistant that must use the provided tools. Always call functions directly instead of describing what you would do. Use the tools to complete the task efficiently.'
+        });
+      }
+      
+      // Always force tool use with Mistral to ensure function calling
+      const requestBody = {
+        model: this.model,
+        messages: messages,
+        tools: tools,
+        tool_choice: "any", // Force tool use
+        stream: false
+      };
+      
+      console.log("Sending Mistral function call request:", JSON.stringify(requestBody, null, 2).substring(0, 500) + "...");
+
+      // Send the request to the Ollama API
+      return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: "makeApiCall",
+          url: `${this.baseURL}/api/chat`,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": chrome.runtime.getURL("")
+          },
+          body: requestBody
+        }, response => {
+          if (chrome.runtime.lastError) {
+            console.error("Runtime error in function calling:", chrome.runtime.lastError);
+            reject(chrome.runtime.lastError);
+            return;
+          }
+          
+          if (!response || !response.success) {
+            const errorMsg = (response && response.error) || "API call failed";
+            console.error("API Error in function calling:", errorMsg);
+            reject(new Error(errorMsg));
+            return;
+          }
+          
+          try {
+            console.log("Mistral function calling raw response:", response.data);
+            
+            // Handle Mistral's response format
+            if (response.data && response.data.message) {
+              const messageData = response.data.message;
+              
+              // Check if we have tool_calls in the response
+              if (messageData.tool_calls && messageData.tool_calls.length > 0) {
+                console.log("Detected native tool_calls in Mistral response:", messageData.tool_calls);
+                return resolve({
+                  content: messageData.content || '',
+                  tool_calls: messageData.tool_calls
+                });
+              } 
+              
+              // If content contains JSON-like function calls, attempt to parse them
+              const content = messageData.content || '';
+              
+              // Try to parse any function calls from the text response
+              const functionCalls = this.extractFunctionCallsFromText(content);
+              if (functionCalls.length > 0) {
+                console.log("Extracted function calls from text:", functionCalls);
+                return resolve({
+                  content: content,
+                  tool_calls: functionCalls.map(fc => ({
+                    id: `auto_${Math.random().toString(36).substring(2, 10)}`,
+                    type: "function",
+                    function: {
+                      name: fc.function_name,
+                      arguments: JSON.stringify(fc.arguments)
+                    }
+                  }))
+                });
+              }
+              
+              // No function calls found
+              return resolve({
+                content: content,
+                tool_calls: []
+              });
+            }
+            
+            resolve({ content: "Error: Unexpected response format from Ollama" });
+          } catch (error) {
+            console.error("Error processing function calling response:", error);
+            reject(error);
+          }
+        });
+      });
+    } catch (error) {
+      console.error("Error in sendFunctionCallingMessage:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract function calls from text response when Mistral doesn't use proper format
+   * @param {string} text - The text response from the model
+   * @returns {Array} Array of extracted function calls
+   */
+  extractFunctionCallsFromText(text) {
+    const functionCalls = [];
+    
+    // Try different patterns to extract function calls
+    
+    // Pattern 1: Function calls with parentheses like fill_field("id", "value")
+    const fnPattern = /(\w+)\s*\(\s*(?:['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]+)['"])?(?:\s*,\s*['"]([^'"]+)['"])?)\s*\)/g;
+    let match;
+    while ((match = fnPattern.exec(text)) !== null) {
+      const fnName = match[1];
+      const args = {};
+      
+      // Handle different functions
+      if (fnName === 'fill_field') {
+        if (match[2]) args.field_id = match[2];
+        if (match[3]) args.value = match[3];
+        if (match[4]) args.confidence = match[4];
+        else args.confidence = "Medium";
+      } else if (fnName === 'search_resume') {
+        if (match[2]) args.query = match[2];
+      } else if (fnName === 'get_resume_section') {
+        if (match[2]) args.section_name = match[2];
+      } else if (fnName === 'check_field') {
+        if (match[2]) args.field_id = match[2];
+      }
+      
+      functionCalls.push({
+        function_name: fnName,
+        arguments: args
+      });
+    }
+    
+    // Pattern 2: Look for field ID and value explicitly mentioned
+    if (functionCalls.length === 0) {
+      const fieldIdPattern = /field id:\s*[`'"]([\w-]+)[`'"]/i;
+      const valuePattern = /value[^:]*:\s*[`'"]([^`'"]+)[`'"]/i;
+      
+      const fieldIdMatch = text.match(fieldIdPattern);
+      const valueMatch = text.match(valuePattern);
+      
+      if (fieldIdMatch && valueMatch) {
+        functionCalls.push({
+          function_name: "fill_field",
+          arguments: {
+            field_id: fieldIdMatch[1],
+            value: valueMatch[1],
+            confidence: "Medium"
+          }
+        });
+      }
+    }
+    
+    return functionCalls;
+  }
 }
 
 class LMStudioProvider extends BaseAIProvider {
@@ -776,14 +967,88 @@ class AIProviderFactory {
   }
 }
 
+/**
+ * Format a complex prompt for local models with clearer structure
+ * @param {string} resumeContent - The resume content
+ * @param {Array} formFields - Array of form field objects
+ * @returns {string} A formatted prompt that's easier for local models to process
+ */
+function formatPrompt(resumeContent, formFields) {
+  let prompt = `TASK: Fill out job application form fields based on resume information.
+
+RESUME:
+${resumeContent}
+
+FORM FIELDS TO FILL:
+`;
+
+  // Add each form field with clearer formatting
+  formFields.forEach(field => {
+    // Include both label and ID for better context
+    const labelText = field.label && field.label.trim() !== '' 
+      ? `${field.label} (${field.id})` 
+      : field.id;
+    
+    prompt += `- ${labelText} (${field.type})\n`;
+  });
+
+  prompt += `
+INSTRUCTIONS:
+1. Use ONLY information found in the resume
+2. For each field ID, provide a suitable value from the resume
+3. Mark fields with "No information available" if nothing matches
+4. Provide confidence level (High/Medium/Low) for each field
+
+RESPONSE FORMAT:
+Return a JSON object with this structure:
+{
+  "fields": [
+    {
+      "id": "exact_field_id",
+      "value": "value from resume",
+      "confidence": "High/Medium/Low"
+    },
+    ...more fields...
+  ],
+  "summary": "Brief analysis of resume-form match"
+}`;
+
+  return prompt;
+}
+
 // Legacy support - this is the original export class
 class AgentsAPI {
   constructor(apiKey, baseURL, model = "gpt-4o", providerType = "OpenAI") {
     this.provider = AIProviderFactory.createProvider(providerType, apiKey, baseURL, model);
+    this.modelName = model; // Store model name for reference
   }
 
   async sendMessage(userMessage) {
     return await this.provider.sendMessage(userMessage);
+  }
+  
+  /**
+   * Send a message with function calling capabilities
+   * @param {Array} messages - Array of message objects
+   * @param {Array} tools - Array of tool definitions
+   * @param {Object} options - Options for the function calling
+   * @returns {Promise<Object>} - The response from the API
+   */
+  async sendFunctionCallingMessage(messages, tools, options = {}) {
+    // If the provider has its own function calling implementation, use it
+    if (this.provider.sendFunctionCallingMessage) {
+      return await this.provider.sendFunctionCallingMessage(messages, tools, options);
+    }
+    
+    // Fallback for providers that don't support function calling
+    console.warn("Function calling not supported by provider, using regular message sending");
+    const lastUserMessage = messages.filter(msg => msg.role === "user").pop();
+    if (lastUserMessage) {
+      const response = await this.provider.sendMessage(lastUserMessage.content);
+      return { content: response, tool_calls: [] };
+    }
+    
+    throw new Error("No user message found for function calling fallback");
   }
 
   clearConversation() {

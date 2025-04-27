@@ -54,11 +54,21 @@ function extractFormData() {
         continue;
       }
 
+      // Helper function to generate a unique ID if the element lacks one
+      function generateUniqueId(field, formId, fieldIndex) {
+        if (field.id) {
+          return field.id;
+        }
+        // Fallback: Use form ID, tag name, field name (if available), and index
+        const namePart = field.name ? `_${field.name.replace(/[^a-zA-Z0-9_]/g, '')}` : '';
+        return `${formId}_${field.tagName.toLowerCase()}${namePart}_${fieldIndex}`;
+      }
+
       // Create a field object with relevant attributes
       const fieldData = {
         tagName: field.tagName.toLowerCase(),
         type: field.type || '',
-        id: field.id || '',
+        id: generateUniqueId(field, formData.id, j), // <-- Use helper function
         name: field.name || '',
         placeholder: field.placeholder || '',
         value: field.value || '',
@@ -122,11 +132,21 @@ function extractFormData() {
         continue;
       }
 
+      // Helper function to generate a unique ID if the element lacks one
+      function generateUniqueId(field, formId, fieldIndex) {
+        if (field.id) {
+          return field.id;
+        }
+        // Fallback: Use form ID, tag name, field name (if available), and index
+        const namePart = field.name ? `_${field.name.replace(/[^a-zA-Z0-9_]/g, '')}` : '';
+        return `${formId}_${field.tagName.toLowerCase()}${namePart}_${fieldIndex}`;
+      }
+
       // Create a field object with relevant attributes
       const fieldData = {
         tagName: field.tagName.toLowerCase(),
         type: field.type || '',
-        id: field.id || '',
+        id: generateUniqueId(field, virtualForm.id, i), // <-- Use helper function for standalone fields
         name: field.name || '',
         placeholder: field.placeholder || '',
         value: field.value || '',

@@ -47,6 +47,9 @@ async function initViewer() {
   // Initialize settings
   const { themeToggle } = ViewerCore.loadThemeSettings();
   
+  // Load Agentic Workflow setting
+  loadAgenticWorkflowSetting();
+  
   // Initialize API client
   const apiInitialized = await initializeAIProvider();
   if (apiInitialized) {
@@ -65,6 +68,16 @@ async function initViewer() {
   
   // Setup event listeners
   setupEventListeners();
+}
+
+// Load Agentic Workflow setting from localStorage
+function loadAgenticWorkflowSetting() {
+  const agenticEnabled = localStorage.getItem('agenticWorkflow') === 'true';
+  const agenticToggle = document.getElementById('agentic-workflow-toggle');
+  
+  if (agenticToggle) {
+    agenticToggle.checked = agenticEnabled;
+  }
 }
 
 // Initialize AI provider from settings
@@ -211,6 +224,12 @@ function setupEventListeners() {
   themeToggle.addEventListener('change', handleThemeToggle);
   saveApiSettingsButton.addEventListener('click', handleSaveApiSettings);
   
+  // Agentic Workflow toggle
+  const agenticToggle = document.getElementById('agentic-workflow-toggle');
+  if (agenticToggle) {
+    agenticToggle.addEventListener('change', handleAgenticWorkflowToggle);
+  }
+  
   // Provider selection change handler
   apiProviderSelect.addEventListener('change', handleProviderChange);
   
@@ -266,6 +285,12 @@ function handleRefreshOllamaModels() {
   initializeOllamaModels(baseURL);
 }
 
+// Handle Agentic Workflow toggle
+function handleAgenticWorkflowToggle() {
+  const agenticToggle = document.getElementById('agentic-workflow-toggle');
+  localStorage.setItem('agenticWorkflow', agenticToggle.checked);
+}
+
 // Output Page Event Handlers
 async function handleGenerateOutput() {
   // Check if we have a resume and form data
@@ -287,14 +312,6 @@ async function handleGenerateOutput() {
   outputFields.textContent = 'Please wait while the AI analyzes your resume and form fields...';
   
   try {
-    // Generate the prompt
-    const prompt = generatePrompt();
-    
-    if (prompt.startsWith('Error:')) {
-      outputSummary.textContent = prompt;
-      return;
-    }
-    
     // Check if we have the API client
     if (!ViewerCore.getAgentsAPI()) {
       // Initialize the API client
@@ -306,8 +323,82 @@ async function handleGenerateOutput() {
       }
     }
     
-    // Send the prompt to the AI
-    const response = await ViewerCore.getAgentsAPI().sendMessage(prompt);
+    // Check if we're using a local model (Ollama or LMStudio)
+    const providerType = localStorage.getItem('apiProvider') || 'OpenAI';
+    const isLocalModel = providerType === 'Ollama' || providerType === 'LMStudio';
+    
+    // Check if Agentic Workflow is enabled
+    const agenticWorkflowEnabled = localStorage.getItem('agenticWorkflow') === 'true';
+    
+    let response;
+    
+    // If Agentic Workflow is enabled, use the tool-based approach
+    if (agenticWorkflowEnabled) {
+      try {
+        outputSummary.textContent = 'Generating output with Agentic Workflow...';
+        outputFields.textContent = 'AI agent is analyzing the resume and form fields using specialized tools...';
+        
+        // Parse form data to extract fields
+        const formData = JSON.parse(formDataStr);
+        const formFields = Array.isArray(formData.autofillableFields) ? 
+                            formData.autofillableFields : [];
+        
+        // Show progress indicator
+        let dots = 0;
+        const progressInterval = setInterval(() => {
+          dots = (dots + 1) % 4;
+          outputSummary.textContent = `Agentic Workflow in progress${'.'.repeat(dots)}`;
+        }, 500);
+        
+        try {
+          // Import the form filling tools module
+          const { fillFormWithTools } = await import('./form-filling-tools.js');
+          
+          // Use the tool-based agent to fill the form
+          response = await fillFormWithTools(
+            ViewerCore.getAgentsAPI().provider, // Pass the provider directly
+            resumeData,
+            formFields
+          );
+          
+          // Clear the progress indicator
+          clearInterval(progressInterval);
+        } catch (agentError) {
+          // Clear any progress indicator
+          clearInterval(progressInterval);
+          throw agentError;
+        }
+      } catch (agentError) {
+        console.error('Error in Agentic Workflow:', agentError);
+        // Fallback to standard prompt-based approach
+        outputSummary.textContent = 'Agentic Workflow encountered an error, falling back to standard approach...';
+        
+        // Generate the prompt with appropriate format for model type
+        const prompt = generatePrompt(isLocalModel);
+        
+        if (prompt.startsWith('Error:')) {
+          outputSummary.textContent = prompt;
+          return;
+        }
+        
+        // Send the prompt to the AI
+        response = await ViewerCore.getAgentsAPI().sendMessage(prompt);
+      }
+    } else {
+      // Standard prompt-based approach
+      console.log(`Using ${isLocalModel ? 'local model' : 'cloud model'} prompt format`);
+      
+      // Generate the prompt with appropriate format for model type
+      const prompt = generatePrompt(isLocalModel);
+      
+      if (prompt.startsWith('Error:')) {
+        outputSummary.textContent = prompt;
+        return;
+      }
+      
+      // Send the prompt to the AI
+      response = await ViewerCore.getAgentsAPI().sendMessage(prompt);
+    }
     
     // Display the AI output
     ViewerCore.displayAIOutput(response, outputSummary, outputFields);
@@ -338,13 +429,8 @@ function handleCopyOutput() {
 }
 
 function handleClearOutput() {
-  // Clear the output
-  localStorage.removeItem('aiGeneratedOutput');
-  ViewerCore.aiGeneratedOutput = null;
-  
-  // Reset the UI
-  outputSummary.textContent = 'No summary available. Click "Generate Output" to analyze your resume and form fields.';
-  outputFields.textContent = 'No mapped fields available. Click "Generate Output" to match resume data to form fields.';
+  // Use the proper method from ViewerCore to clear the output
+  ViewerCore.clearAIOutput(outputSummary, outputFields);
 }
 
 // Application Data Event Handlers

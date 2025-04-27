@@ -84,7 +84,10 @@ export function switchToPage(pageName, navLinks, pages) {
   
   // Update active navigation link
   Object.values(navLinks).forEach(link => link.classList.remove('active'));
-  navLinks[pageName].classList.add('active');
+  navLinks[pageName].addEventListener('click', (e) => {
+    e.preventDefault();
+    switchToPage(pageName, navLinks, pages);
+  });
 }
 
 /**
@@ -180,156 +183,183 @@ export function toMarkdown(text) {
 }
 
 /**
- * Display AI-generated output
- * @param {string|Object} output - The AI output to display
+ * Display the AI output in the UI
+ * @param {string|object} text - The output text or response object from the AI
+ * @param {HTMLElement} summaryElement - The element to display the summary
+ * @param {HTMLElement} fieldsElement - The element to display the fields
+ */
+function displayAIOutput(text, summaryElement, fieldsElement) {
+  try {
+    // Check if text is empty or undefined
+    if (!text) {
+      summaryElement.textContent = 'No output was generated.';
+      fieldsElement.textContent = '';
+      return;
+    }
+
+    // Ensure text is a string
+    const outputText = typeof text === 'object' ? 
+                      (text.content || JSON.stringify(text)) : 
+                      String(text);
+
+    // Store the AI output in localStorage for later use
+    const timestamp = new Date().toISOString();
+    const output = {
+      data: outputText,
+      timestamp
+    };
+    localStorage.setItem('aiGeneratedOutput', JSON.stringify(output));
+
+    // Try to parse the output as JSON
+    try {
+      // Handle Mistral-specific output format
+      if (typeof text === 'object' && text.content) {
+        // Handle both object and string responses
+        const content = text.content;
+        displayFormattedOutput(content, summaryElement, fieldsElement);
+        calculateTokenUsage(content); // Calculate token usage
+      } else {
+        // Handle regular string output
+        displayFormattedOutput(outputText, summaryElement, fieldsElement);
+        calculateTokenUsage(outputText); // Calculate token usage
+      }
+    } catch (parseError) {
+      console.error('Error parsing AI output:', parseError);
+      // If parsing fails, just display the raw text
+      summaryElement.textContent = 'Unable to parse the AI output as JSON.';
+      fieldsElement.innerHTML = `<pre>${outputText}</pre>`;
+    }
+  } catch (error) {
+    console.error('Error parsing AI output:', error);
+    summaryElement.textContent = 'Error parsing the AI output.';
+    fieldsElement.textContent = error.message;
+  }
+}
+
+/**
+ * Display formatted output from parsed AI response
+ * @param {string} text - The text to parse and display
  * @param {HTMLElement} summaryElement - Element to display the summary
  * @param {HTMLElement} fieldsElement - Element to display the fields
  */
-export function displayAIOutput(output, summaryElement, fieldsElement) {
-  let parsedOutput;
-  
+function displayFormattedOutput(text, summaryElement, fieldsElement) {
   try {
-    // First try to parse as JSON
-    if (typeof output === 'string') {
-      // Check if the output is already in JSON format
-      if (output.trim().startsWith('{') || output.trim().startsWith('[')) {
-        try {
-          parsedOutput = JSON.parse(output);
-        } catch (error) {
-          console.log("Failed initial JSON parse, trying to extract JSON from text");
-          
-          // Try to extract JSON from the response if it's embedded in text
-          const jsonMatch = output.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try {
-              parsedOutput = JSON.parse(jsonMatch[0]);
-            } catch (innerError) {
-              console.error("Failed to extract JSON:", innerError);
-              throw new Error("Could not parse response as JSON");
-            }
-          } else {
-            throw new Error("No JSON object found in response");
-          }
-        }
-      } else {
-        // If it's not JSON, create a simple structure
-        parsedOutput = {
-          summary: "AI provided a non-JSON response. This may contain useful information but isn't in the expected format.",
-          fields: [],
-          rawResponse: output
-        };
+    // Handle possible non-string inputs
+    const responseText = typeof text === 'string' ? text : JSON.stringify(text);
+    
+    // Try to find and extract JSON from the response
+    let jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    let jsonString = jsonMatch ? jsonMatch[1] : responseText;
+    
+    // Check if it's a valid JSON object string (starts with { and ends with })
+    if (!jsonString.trim().startsWith('{') || !jsonString.trim().endsWith('}')) {
+      // Not a JSON object, try to find one in the text
+      const possibleJson = responseText.match(/{[\s\S]*"fields"[\s\S]*?}/);
+      if (possibleJson) {
+        jsonString = possibleJson[0];
       }
-    } else if (typeof output === 'object') {
-      // Already an object, no parsing needed
-      parsedOutput = output;
-    } else {
-      throw new Error(`Unexpected output type: ${typeof output}`);
     }
     
-    aiGeneratedOutput = parsedOutput;
+    // Parse the JSON
+    const parsedData = JSON.parse(jsonString);
     
-    // Get the prompt that was used
-    const prompt = generatePrompt();
-    
-    // Calculate token usage
-    const tokenUsage = calculateTokenUsage(prompt, output);
-    
-    // Display the summary with token usage information
-    summaryElement.innerHTML = `
-      <div class="output-summary-content">
-        <p>${parsedOutput.summary || "No summary available."}</p>
-        
-        <div class="token-usage">
-          <h4>Token Usage Statistics</h4>
-          <div class="token-stats">
-            <div class="token-stat">
-              <div class="token-label">Prompt Tokens:</div>
-              <div class="token-value">${tokenUsage.promptTokens.toLocaleString()}</div>
-            </div>
-            <div class="token-stat">
-              <div class="token-label">Response Tokens:</div>
-              <div class="token-value">${tokenUsage.responseTokens.toLocaleString()}</div>
-            </div>
-            <div class="token-stat total-tokens">
-              <div class="token-label">Total Tokens:</div>
-              <div class="token-value">${tokenUsage.totalTokens.toLocaleString()}</div>
-            </div>
-          </div>
-        </div>
-        
-        ${parsedOutput.rawResponse ? 
-          `<div class="raw-response">
-            <h3>Raw Response</h3>
-            <pre>${parsedOutput.rawResponse}</pre>
-           </div>` 
-          : ''}
-      </div>
-    `;
-    
-    // Display the fields
-    if (parsedOutput.fields && parsedOutput.fields.length > 0) {
-      let fieldsHTML = `
-        <table class="output-fields-table">
-          <thead>
-            <tr>
-              <th>Field</th>
-              <th>Value</th>
-              <th>Confidence</th>
-            </tr>
-          </thead>
-          <tbody>
-      `;
+    // If we have a valid parsed object with fields and summary
+    if (parsedData && parsedData.fields && Array.isArray(parsedData.fields)) {
+      // Store the AI output for later use
+      aiGeneratedOutput = parsedData;
       
-      parsedOutput.fields.forEach(field => {
-        const confidenceClass = getConfidenceClass(field.confidence);
-        fieldsHTML += `
-          <tr class="${confidenceClass}">
-            <td>${field.id}</td>
-            <td>${field.value || '(Empty)'}</td>
-            <td>${field.confidence}</td>
-          </tr>
-        `;
+      // Display the summary
+      if (parsedData.summary) {
+        summaryElement.textContent = parsedData.summary;
+      } else {
+        summaryElement.textContent = 'No summary provided in the AI output.';
+      }
+      
+      // Clear previous fields
+      fieldsElement.innerHTML = '';
+      
+      // Create a table for the fields
+      const table = document.createElement('table');
+      table.className = 'output-table';
+      
+      // Create table header
+      const tableHead = document.createElement('thead');
+      tableHead.innerHTML = `
+        <tr>
+          <th>Field ID</th>
+          <th>Value</th>
+          <th>Confidence</th>
+        </tr>
+      `;
+      table.appendChild(tableHead);
+      
+      // Create table body
+      const tableBody = document.createElement('tbody');
+      
+      // Add each field to the table
+      parsedData.fields.forEach(field => {
+        const row = document.createElement('tr');
+        
+        // Field ID cell
+        const idCell = document.createElement('td');
+        idCell.textContent = field.id;
+        row.appendChild(idCell);
+        
+        // Value cell
+        const valueCell = document.createElement('td');
+        valueCell.textContent = field.value;
+        row.appendChild(valueCell);
+        
+        // Confidence cell
+        const confidenceCell = document.createElement('td');
+        confidenceCell.textContent = field.confidence || 'Medium';
+        confidenceCell.classList.add(getConfidenceClass(field.confidence));
+        row.appendChild(confidenceCell);
+        
+        // Add row to table
+        tableBody.appendChild(row);
       });
       
-      fieldsHTML += `
-          </tbody>
-        </table>
-      `;
+      // Add table body to table
+      table.appendChild(tableBody);
       
-      fieldsElement.innerHTML = fieldsHTML;
+      // Add table to fields element
+      fieldsElement.appendChild(table);
+      
+      // Add styling
+      addOutputStyles();
+      
+      // Add copy functionality
+      addCopyButton(fieldsElement, 'Copy All', () => {
+        return JSON.stringify(parsedData, null, 2);
+      });
     } else {
-      if (parsedOutput.rawResponse) {
-        fieldsElement.innerHTML = `
-          <p>No structured fields were detected in the AI response.</p>
-        `;
-      } else {
-        fieldsElement.textContent = 'No fields were mapped by the AI.';
-      }
+      // If we couldn't parse the JSON or it's not in the expected format
+      summaryElement.textContent = 'Could not parse AI output in the expected format.';
+      fieldsElement.innerHTML = `<pre>${responseText}</pre>`;
     }
-    
-    // Add styling
-    addOutputStyles();
-    
-    // Store the output in localStorage with token usage information
-    localStorage.setItem('aiGeneratedOutput', JSON.stringify({
-      timestamp: Date.now(),
-      data: parsedOutput,
-      tokenUsage: tokenUsage
-    }));
-    
   } catch (error) {
-    console.error('Error parsing AI output:', error);
-    summaryElement.textContent = 'Error parsing AI output. The response may not be in the expected format.';
-    
-    // Display the raw response for debugging
-    fieldsElement.innerHTML = `
-      <div class="error-message">
-        <p>${error.message}</p>
-        <h4>Raw Response:</h4>
-        <pre style="white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; padding: 10px; background-color: rgba(0, 0, 0, 0.05); border-radius: 5px;">${output}</pre>
-      </div>
-    `;
+    console.error('Error displaying formatted output:', error);
+    summaryElement.textContent = 'Error parsing the AI output.';
+    fieldsElement.textContent = error.message;
   }
+}
+
+/**
+ * Clear the AI generated output
+ * @param {HTMLElement} summaryElement - Element to display the summary
+ * @param {HTMLElement} fieldsElement - Element to display the fields
+ */
+export function clearAIOutput(summaryElement, fieldsElement) {
+  // Clear the variable
+  aiGeneratedOutput = null;
+  
+  // Clear localStorage
+  localStorage.removeItem('aiGeneratedOutput');
+  
+  // Reset UI
+  summaryElement.textContent = 'No summary available. Click "Generate Output" to analyze your resume and form fields.';
+  fieldsElement.textContent = 'No mapped fields available. Click "Generate Output" to match resume data to form fields.';
 }
 
 /**
@@ -677,3 +707,5 @@ export function loadThemeSettings() {
   
   return { darkMode, themeToggle };
 }
+
+export { displayAIOutput, displayFormattedOutput };
