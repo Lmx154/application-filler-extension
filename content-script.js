@@ -1,173 +1,18 @@
-// Import PDF.js as a module
-import * as pdfjsLib from './pdf.mjs';
+// Content script to detect and extract dynamically loaded forms
+console.log("Form extractor content script loaded");
 
-// Set the worker source to the worker file
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
+// Store information about detected forms
+let detectedForms = {
+  initial: false,  // Whether initial scan has been completed
+  forms: [],       // Forms detected 
+  dynamicFormData: null, // Data structure for dynamic forms
+  observing: false // Whether we're currently observing DOM changes
+};
 
-const input = document.getElementById('fileInput');
-const out = document.getElementById('output');
-const openViewerButton = document.getElementById('openViewer');
-const extractDataButton = document.getElementById('extractData');
-
-// Handle the "Open Full-Page Viewer" button click
-openViewerButton.addEventListener('click', () => {
-  chrome.tabs.create({
-    url: chrome.runtime.getURL("viewer.html")
-  });
-});
-
-// Handle the "Extract HTML Data" button click
-extractDataButton.addEventListener('click', async () => {
-  // Get current active tab
-  try {
-    const tabs = await chrome.tabs.query({active: true, currentWindow: true});
-    if (!tabs || tabs.length === 0) {
-      console.error("No active tab found");
-      return;
-    }
-
-    const activeTab = tabs[0];
-    
-    // Update button text to show we're working
-    const originalText = extractDataButton.textContent;
-    extractDataButton.textContent = "Extracting...";
-    extractDataButton.disabled = true;
-    
-    // First check if we already have data from the MutationObserver
-    chrome.storage.local.get(['extractedHTML', 'pageUrl', 'pageTitle', 'detectionTime'], (data) => {
-      // If we have recent data (less than 10 seconds old) for this page, use it
-      const currentTime = Date.now();
-      const isRecentData = data.detectionTime && 
-                          (currentTime - data.detectionTime < 10000) && 
-                          data.pageUrl === activeTab.url;
-      
-      if (isRecentData && data.extractedHTML) {
-        console.log("Using recently detected form data");
-        // Store the form data in localStorage for viewer.html
-        localStorage.setItem('extractedHTML', data.extractedHTML);
-        localStorage.setItem('pageUrl', data.pageUrl);
-        localStorage.setItem('pageTitle', data.pageTitle);
-        
-        // Reset button
-        extractDataButton.textContent = originalText;
-        extractDataButton.disabled = false;
-        
-        // Open the viewer page to display the data
-        chrome.tabs.create({
-          url: chrome.runtime.getURL("viewer.html?section=application")
-        });
-      } else {
-        // Send a message to the content script to force a scan
-        chrome.tabs.sendMessage(activeTab.id, { action: "scanForForms" }, (response) => {
-          // Check for error
-          if (chrome.runtime.lastError) {
-            console.error("Error communicating with content script:", chrome.runtime.lastError);
-            
-            // Fallback to the old method - inject and execute the script
-            chrome.scripting.executeScript({
-              target: {tabId: activeTab.id},
-              func: extractFormData
-            }, (results) => {
-              handleScriptResults(results);
-            });
-            return;
-          }
-          
-          // If we got a response from the content script
-          if (response && response.success) {
-            console.log("Received form data from content script");
-            
-            // Store the form data in localStorage and chrome.storage.local
-            const formData = response.formData;
-            localStorage.setItem('extractedHTML', JSON.stringify(formData));
-            localStorage.setItem('pageUrl', activeTab.url);
-            localStorage.setItem('pageTitle', activeTab.title);
-            
-            chrome.storage.local.set({
-              extractedHTML: JSON.stringify(formData),
-              pageUrl: activeTab.url,
-              pageTitle: activeTab.title,
-              detectionTime: Date.now()
-            });
-            
-            // Reset button
-            extractDataButton.textContent = originalText;
-            extractDataButton.disabled = false;
-            
-            // Open the viewer page to display the data
-            chrome.tabs.create({
-              url: chrome.runtime.getURL("viewer.html?section=application")
-            });
-          } else {
-            console.error("Failed to get form data from content script");
-            
-            // Fallback to the old method - inject and execute the script
-            chrome.scripting.executeScript({
-              target: {tabId: activeTab.id},
-              func: extractFormData
-            }, (results) => {
-              handleScriptResults(results);
-            });
-          }
-        });
-      }
-    });
-    
-    // Helper function to handle the script execution results
-    function handleScriptResults(results) {
-      if (chrome.runtime.lastError) {
-        console.error("Script injection error:", chrome.runtime.lastError);
-        extractDataButton.textContent = "Error: " + chrome.runtime.lastError.message;
-        setTimeout(() => {
-          extractDataButton.textContent = originalText;
-          extractDataButton.disabled = false;
-        }, 3000);
-        return;
-      }
-
-      if (results && results[0] && results[0].result) {
-        // Store the form data in localStorage
-        localStorage.setItem('extractedHTML', JSON.stringify(results[0].result));
-        localStorage.setItem('pageUrl', activeTab.url);
-        localStorage.setItem('pageTitle', activeTab.title);
-        
-        // Also store in chrome.storage.local for persistence
-        chrome.storage.local.set({
-          extractedHTML: JSON.stringify(results[0].result),
-          pageUrl: activeTab.url,
-          pageTitle: activeTab.title,
-          detectionTime: Date.now()
-        });
-        
-        // Reset button state
-        extractDataButton.textContent = originalText;
-        extractDataButton.disabled = false;
-        
-        // Open the viewer page to display the data
-        chrome.tabs.create({
-          url: chrome.runtime.getURL("viewer.html?section=application")
-        });
-      } else {
-        console.error("Failed to extract form data");
-        extractDataButton.textContent = "No form data found";
-        setTimeout(() => {
-          extractDataButton.textContent = originalText;
-          extractDataButton.disabled = false;
-        }, 3000);
-      }
-    }
-  } catch (error) {
-    console.error("Error extracting form data:", error);
-    extractDataButton.textContent = "Error: " + error.message;
-    setTimeout(() => {
-      extractDataButton.textContent = "Extract HTML Data";
-      extractDataButton.disabled = false;
-    }, 3000);
-  }
-});
-
-// Function to extract form fields and autofill data from the page
+// Function to extract form data - similar to the function in popup.js but enhanced
 function extractFormData() {
+  console.log("Extracting form data from current DOM");
+  
   // Create a result object to store all forms and fields
   const result = {
     forms: [],
@@ -245,6 +90,7 @@ function extractFormData() {
 
   // Also look for standalone input fields outside of forms
   // that might be part of dynamically generated forms
+  // This is key for handling applications like Ashby which use React/Angular forms
   const standaloneFields = document.querySelectorAll(
     'body > input:not(form input), ' + 
     'body > select:not(form select), ' + 
@@ -434,7 +280,7 @@ function extractFormData() {
     return field.placeholder || field.name || field.id || '';
   }
   
-  // Helper function to get a CSS selector path for an element
+  // Helper function to get a CSS selector path for an element (useful for debugging)
   function getElementPath(element) {
     if (!element) return '';
     
@@ -464,63 +310,159 @@ function extractFormData() {
   }
 }
 
-input.addEventListener('change', async () => {
-  const file = input.files[0];
-  if (!file || file.type !== 'application/pdf') {
-    out.textContent = 'Please select a PDF file.';
-    return;
+// Start monitoring for DOM changes to detect dynamic form loading
+function startFormObserver() {
+  if (detectedForms.observing) {
+    return; // Already observing
   }
-
-  out.textContent = 'Parsing…';
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-  let fullText = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    fullText += content.items.map(item => item.str).join(' ') + '\n';
-  }
-
-  out.textContent = toMarkdown(fullText);
-});
-
-function toMarkdown(text) {
-  return text
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l)
-    .map(l => {
-      if (/^[-•*]\s*/.test(l)) {
-        return '- ' + l.replace(/^[-•*]\s*/, '');
-      }
-      if (l === l.toUpperCase() && l.length < 50) {
-        return '## ' + l;
-      }
-      return l;
-    })
-    .join('\n\n');
-}
-
-// Check if we have any stored data to show badge
-document.addEventListener('DOMContentLoaded', () => {
-  chrome.tabs.query({active: true, currentWindow: true}, async (tabs) => {
-    if (tabs && tabs.length > 0) {
-      const activeTab = tabs[0];
-      
-      // Check if we have stored data for this page
-      chrome.storage.local.get(['extractedHTML', 'pageUrl'], (data) => {
-        if (data.pageUrl === activeTab.url && data.extractedHTML) {
-          try {
-            const formData = JSON.parse(data.extractedHTML);
-            if (formData.pageAnalysis && formData.pageAnalysis.autofillableFieldsCount > 0) {
-              extractDataButton.textContent = `Extract Form Data (${formData.pageAnalysis.autofillableFieldsCount} fields)`;
+  
+  console.log("Starting MutationObserver to detect dynamic forms");
+  
+  // Create a mutation observer to detect when forms are added to the DOM
+  const observer = new MutationObserver((mutations) => {
+    let significantChange = false;
+    
+    for (const mutation of mutations) {
+      // Check for added nodes that might contain forms or form elements
+      if (mutation.addedNodes.length > 0) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            // Check if the node is a form or has form elements
+            if (node.tagName === 'FORM' || 
+                node.querySelector('form, input:not([type="hidden"]), select, textarea')) {
+              significantChange = true;
+              break;
             }
-          } catch (error) {
-            console.error("Error parsing stored form data:", error);
           }
         }
-      });
+      }
+      
+      if (significantChange) break;
+    }
+    
+    if (significantChange) {
+      // Wait a moment for the DOM to stabilize
+      clearTimeout(window.formDetectionTimeout);
+      window.formDetectionTimeout = setTimeout(() => {
+        const newFormData = extractFormData();
+        
+        // Compare with previous scan to see if forms have been added
+        if (detectedForms.dynamicFormData) {
+          if (newFormData.pageAnalysis.totalFields > detectedForms.dynamicFormData.pageAnalysis.totalFields) {
+            console.log("Detected new form fields:", 
+              newFormData.pageAnalysis.totalFields - detectedForms.dynamicFormData.pageAnalysis.totalFields);
+            
+            // Store the new data
+            detectedForms.dynamicFormData = newFormData;
+            
+            // Send a message to the background script/popup about the new form data
+            chrome.runtime.sendMessage({
+              action: "formDetected",
+              formData: newFormData
+            });
+          }
+        } else {
+          // First scan
+          detectedForms.dynamicFormData = newFormData;
+          
+          if (newFormData.pageAnalysis.totalFields > 0) {
+            // Send a message to the background script/popup about the form data
+            chrome.runtime.sendMessage({
+              action: "formDetected",
+              formData: newFormData
+            });
+          }
+        }
+      }, 500);
     }
   });
+  
+  // Observe everything
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'id'] // Just key attributes that might affect visibility
+  });
+  
+  detectedForms.observing = true;
+}
+
+// Function to run an initial form scan
+function initialFormScan() {
+  console.log("Running initial form scan");
+  
+  // Extract form data
+  const formData = extractFormData();
+  
+  // Store the data
+  detectedForms.initial = true;
+  detectedForms.dynamicFormData = formData;
+  
+  if (formData.pageAnalysis.totalFields > 0) {
+    // Send a message to the background script/popup about the form data
+    chrome.runtime.sendMessage({
+      action: "formDetected",
+      formData: formData
+    });
+  }
+  
+  // Start the observer to detect dynamic changes
+  startFormObserver();
+}
+
+// Listen for messages from the extension
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === "scanForForms") {
+    // Force a new scan
+    console.log("Received request to scan for forms");
+    const formData = extractFormData();
+    
+    // Store the data
+    detectedForms.dynamicFormData = formData;
+    
+    // Send response back
+    sendResponse({
+      success: true,
+      formData: formData
+    });
+    
+    // Start the observer if not already running
+    if (!detectedForms.observing) {
+      startFormObserver();
+    }
+  }
+  
+  // Return true to indicate we might respond asynchronously
+  return true;
+});
+
+// Run the initial scan when DOM is fully loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialFormScan);
+} else {
+  // DOM is already loaded
+  initialFormScan();
+}
+
+// Also scan when the page is fully loaded (including images)
+window.addEventListener('load', () => {
+  // Wait a moment for possible post-load scripts to run
+  setTimeout(() => {
+    console.log("Running post-load form scan");
+    const formData = extractFormData();
+    
+    // Only update if we found more fields than in the initial scan
+    if (detectedForms.dynamicFormData &&
+        formData.pageAnalysis.totalFields > detectedForms.dynamicFormData.pageAnalysis.totalFields) {
+      
+      detectedForms.dynamicFormData = formData;
+      
+      // Send a message about the updated form data
+      chrome.runtime.sendMessage({
+        action: "formDetected",
+        formData: formData
+      });
+    }
+  }, 1000);
 });
