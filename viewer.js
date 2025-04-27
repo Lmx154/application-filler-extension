@@ -69,9 +69,6 @@ async function initViewer() {
 
 // Initialize AI provider from settings
 async function initializeAIProvider() {
-  // Load environment variables
-  const loadedEnvVars = await ViewerCore.loadEnvVars();
-  
   // Check for saved provider in localStorage
   const providerType = localStorage.getItem('apiProvider') || 'Ollama'; // Default to Ollama
   
@@ -84,9 +81,9 @@ async function initializeAIProvider() {
   const defaults = AIProviderFactory.getProviderDefaults(providerType);
   
   // Load settings from localStorage with fallbacks to defaults
-  const apiKey = localStorage.getItem('apiKey') || loadedEnvVars.OPENAI_API_KEY || '';
-  const baseURL = localStorage.getItem('apiBaseUrl') || loadedEnvVars.OPENAI_API_BASE || defaults.baseURL;
-  const model = localStorage.getItem('modelName') || loadedEnvVars.MODEL_NAME || defaults.defaultModel;
+  const apiKey = localStorage.getItem('apiKey') || '';
+  const baseURL = localStorage.getItem('apiBaseUrl') || defaults.baseURL;
+  const model = localStorage.getItem('modelName') || defaults.defaultModel;
   
   // Update the settings form fields
   document.getElementById('api-key').value = apiKey;
@@ -119,14 +116,23 @@ async function initializeOllamaModels(baseURL) {
     // Get the base URL - default to localhost if not specified
     const ollamaBaseUrl = baseURL || 'http://127.0.0.1:11434';
     
+    // Create a timeout promise to avoid hanging indefinitely
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Connection to Ollama timed out')), 3000)
+    );
+    
     // Create a temporary Ollama instance to fetch models
     ollamaInstance = new AgentsAPI('', ollamaBaseUrl, 'llama3', 'Ollama');
     
     // Use the provider directly
     const provider = ollamaInstance.provider;
     
-    // Fetch available models
-    const models = await provider.listModels();
+    // Race the model fetch against the timeout
+    const models = await Promise.race([
+      provider.listModels(),
+      timeoutPromise
+    ]);
+    
     ollamaModels = models;
     
     // Populate the model selector
@@ -145,6 +151,8 @@ async function initializeOllamaModels(baseURL) {
   } catch (error) {
     console.error('Error fetching Ollama models:', error);
     ollamaModelSelector.innerHTML = '<option value="">Failed to load models</option>';
+    
+    // Don't let this error block the UI
     return false;
   }
 }
@@ -504,8 +512,8 @@ function handleSaveApiSettings() {
   
   // Update the API client with the new settings
   const providerDefaults = AIProviderFactory.getProviderDefaults(providerType);
-  const baseUrl = apiBaseUrl || ViewerCore.envVars.OPENAI_API_BASE || providerDefaults.baseURL;
-  const model = modelName || ViewerCore.envVars.MODEL_NAME || providerDefaults.defaultModel;
+  const baseUrl = apiBaseUrl || providerDefaults.baseURL;
+  const model = modelName || providerDefaults.defaultModel;
   
   ViewerCore.setAgentsAPI(new AgentsAPI(apiKey, baseUrl, model, providerType));
   

@@ -764,7 +764,7 @@ class AIProviderFactory {
       },
       Ollama: {
         baseURL: 'http://localhost:11434',
-        defaultModel: 'llama3'
+        defaultModel: 'gemma3:4b'
       },
       LMStudio: {
         baseURL: 'http://localhost:1234',

@@ -21,7 +21,6 @@ export const getAgentsAPI = () => state.agentsAPI;
 export const setAgentsAPI = (api) => { state.agentsAPI = api; };
 
 // Other exports
-export let envVars = {};
 export let parsedResume = '';
 export let formData = null;
 export let aiGeneratedOutput = null;
@@ -35,34 +34,6 @@ export let currentApplicationData = {
   "education": "Bachelor of Science in Computer Science",
   "skills": "JavaScript, React, Node.js, Python, SQL, Git"
 };
-
-/**
- * Load environment variables from .env file
- * @returns {Promise<Object>} The loaded environment variables
- */
-export async function loadEnvVars() {
-  try {
-    const response = await fetch('.env');
-    const text = await response.text();
-    
-    // Parse .env file content
-    const envVars = {};
-    text.split('\n').forEach(line => {
-      // Skip empty lines and comments
-      if (!line || line.startsWith('#')) return;
-      
-      const [key, value] = line.split('=');
-      if (key && value) {
-        envVars[key.trim()] = value.trim();
-      }
-    });
-    
-    return envVars;
-  } catch (error) {
-    console.error('Error loading .env file:', error);
-    return {};
-  }
-}
 
 /**
  * Initialize the navigation system
@@ -103,13 +74,17 @@ export function initNavigation() {
  * @param {Object} pages - Object containing page elements
  */
 export function switchToPage(pageName, navLinks, pages) {
+  // Hide all pages
+  Object.values(pages).forEach(page => page.classList.remove('active'));
+  
+  // Show the selected page
+  if (pages[pageName]) {
+    pages[pageName].classList.add('active');
+  }
+  
   // Update active navigation link
   Object.values(navLinks).forEach(link => link.classList.remove('active'));
   navLinks[pageName].classList.add('active');
-
-  // Update visible page
-  Object.values(pages).forEach(page => page.classList.remove('active'));
-  pages[pageName].classList.add('active');
 }
 
 /**
@@ -665,21 +640,19 @@ export function updateApplicationDataDisplay(containerElement) {
 }
 
 /**
- * Initialize the AgentsAPI client with environment variables
+ * Initialize the AgentsAPI client
  */
-export async function initializeAgentsAPI() {
-  envVars = await loadEnvVars();
-  
-  // First check if we have saved values in localStorage
-  const apiKey = localStorage.getItem('apiKey') || envVars.OPENAI_API_KEY || '';
-  const baseURL = localStorage.getItem('apiBaseUrl') || envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
-  const model = localStorage.getItem('modelName') || envVars.MODEL_NAME || 'gpt-4o';
-  
+export function initializeAgentsAPI() {
+  // Only use localStorage or hardcoded defaults
+  const apiKey = localStorage.getItem('apiKey') || '';
+  const baseURL = localStorage.getItem('apiBaseUrl') || 'https://api.openai.com/v1';
+  const model = localStorage.getItem('modelName') || 'gpt-4o';
+
   // Update the settings form fields
   document.getElementById('api-key').value = apiKey;
   document.getElementById('api-base-url').value = baseURL;
   document.getElementById('model-name').value = model;
-  
+
   if (apiKey) {
     setAgentsAPI(new AgentsAPI(apiKey, baseURL, model));
     return true;

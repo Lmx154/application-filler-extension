@@ -115,7 +115,27 @@ FORM FIELDS:
     return 'Error: No form fields found. Please extract a form first.';
   }
   
-  prompt += `\nINSTRUCTIONS:\r\n1. Analyze my resume and provide values for each form field based ONLY on information found in my resume.\r\n2. For each field, use EXACTLY the field ID/name I provided above as the \"id\" in your response.\r\n3. If a field has no corresponding information in my resume, mark its value as \"No information available\" with Low confidence.\r\n4. DO NOT make up or invent any information that is not explicitly mentioned in my resume.\r\n\r\nJSON RESPONSE STRUCTURE:\r\n{\r\n  \"fields\": [\r\n    {\r\n      \"id\": \"EXACT_FIELD_ID\",\r\n      \"value\": \"value from resume\",\r\n      \"confidence\": \"High/Medium/Low\"\r\n    },\r\n    ...more fields...\r\n  ],\r\n  \"summary\": \"Brief summary of how well the resume matches the form fields\"\r\n}\r\n\r\nCRITICAL FORMATTING INSTRUCTIONS:\r\n- Your response MUST be ONLY the JSON object described above.\r\n- Start the response *immediately* with the opening curly brace '{'.\r\n- End the response *immediately* with the closing curly brace '}'.\r\n- There should be absolutely NO text, comments, or explanations before the opening '{' or after the closing '}'.\r\n\r\nRemember: Only the raw JSON object.`;
+  prompt += `\nINSTRUCTIONS:
+1. Analyze my resume and provide values for each form field based ONLY on information found in my resume.
+2. For each field, use EXACTLY the field ID/name I provided above as the "id" in your response.
+3. If a field has no corresponding information in my resume, mark its value as "No information available" with Low confidence.
+4. DO NOT make up or invent any information that is not explicitly mentioned in my resume.
+
+RESPONSE FORMAT:
+Return only a raw JSON object in this structure:
+{
+  "fields": [
+    {
+      "id": "EXACT_FIELD_ID",
+      "value": "value from resume",
+      "confidence": "High/Medium/Low"
+    },
+    ...more fields...
+  ],
+  "summary": "Brief summary of how well the resume matches the form fields"
+}
+
+IMPORTANT: Your response must be only the raw JSON object, with no extra text, comments, or formatting.`;
 
   return prompt;
 }
