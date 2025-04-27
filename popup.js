@@ -1,23 +1,15 @@
-// Import PDF.js as a module
+// Import the needed modules
 import * as pdfjsLib from './pdf.mjs';
 
-// Set the worker source to the worker file
+// Set the worker source to the worker file (needed for PDF functionality in other parts)
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.mjs';
 
-const input = document.getElementById('fileInput');
-const out = document.getElementById('output');
-const openViewerButton = document.getElementById('openViewer');
-const extractDataButton = document.getElementById('extractData');
+// Get DOM elements
+const extractApplicationButton = document.getElementById('extractApplication');
+const openSettingsButton = document.getElementById('openSettings');
 
-// Handle the "Open Full-Page Viewer" button click
-openViewerButton.addEventListener('click', () => {
-  chrome.tabs.create({
-    url: chrome.runtime.getURL("viewer.html")
-  });
-});
-
-// Handle the "Extract HTML Data" button click
-extractDataButton.addEventListener('click', async () => {
+// Handle the "Extract Application" button click
+extractApplicationButton.addEventListener('click', async () => {
   // Get current active tab
   try {
     const tabs = await chrome.tabs.query({active: true, currentWindow: true});
@@ -29,9 +21,9 @@ extractDataButton.addEventListener('click', async () => {
     const activeTab = tabs[0];
     
     // Update button text to show we're working
-    const originalText = extractDataButton.textContent;
-    extractDataButton.textContent = "Extracting...";
-    extractDataButton.disabled = true;
+    const originalText = extractApplicationButton.textContent;
+    extractApplicationButton.textContent = "Extracting...";
+    extractApplicationButton.disabled = true;
     
     // First check if we already have data from the MutationObserver
     chrome.storage.local.get(['extractedHTML', 'pageUrl', 'pageTitle', 'detectionTime'], (data) => {
@@ -49,8 +41,8 @@ extractDataButton.addEventListener('click', async () => {
         localStorage.setItem('pageTitle', data.pageTitle);
         
         // Reset button
-        extractDataButton.textContent = originalText;
-        extractDataButton.disabled = false;
+        extractApplicationButton.textContent = originalText;
+        extractApplicationButton.disabled = false;
         
         // Open the viewer page to display the data
         chrome.tabs.create({
@@ -91,8 +83,8 @@ extractDataButton.addEventListener('click', async () => {
             });
             
             // Reset button
-            extractDataButton.textContent = originalText;
-            extractDataButton.disabled = false;
+            extractApplicationButton.textContent = originalText;
+            extractApplicationButton.disabled = false;
             
             // Open the viewer page to display the data
             chrome.tabs.create({
@@ -117,10 +109,10 @@ extractDataButton.addEventListener('click', async () => {
     function handleScriptResults(results) {
       if (chrome.runtime.lastError) {
         console.error("Script injection error:", chrome.runtime.lastError);
-        extractDataButton.textContent = "Error: " + chrome.runtime.lastError.message;
+        extractApplicationButton.textContent = "Error: " + chrome.runtime.lastError.message;
         setTimeout(() => {
-          extractDataButton.textContent = originalText;
-          extractDataButton.disabled = false;
+          extractApplicationButton.textContent = originalText;
+          extractApplicationButton.disabled = false;
         }, 3000);
         return;
       }
@@ -140,8 +132,8 @@ extractDataButton.addEventListener('click', async () => {
         });
         
         // Reset button state
-        extractDataButton.textContent = originalText;
-        extractDataButton.disabled = false;
+        extractApplicationButton.textContent = originalText;
+        extractApplicationButton.disabled = false;
         
         // Open the viewer page to display the data
         chrome.tabs.create({
@@ -149,21 +141,28 @@ extractDataButton.addEventListener('click', async () => {
         });
       } else {
         console.error("Failed to extract form data");
-        extractDataButton.textContent = "No form data found";
+        extractApplicationButton.textContent = "No form data found";
         setTimeout(() => {
-          extractDataButton.textContent = originalText;
-          extractDataButton.disabled = false;
+          extractApplicationButton.textContent = originalText;
+          extractApplicationButton.disabled = false;
         }, 3000);
       }
     }
   } catch (error) {
     console.error("Error extracting form data:", error);
-    extractDataButton.textContent = "Error: " + error.message;
+    extractApplicationButton.textContent = "Error: " + error.message;
     setTimeout(() => {
-      extractDataButton.textContent = "Extract HTML Data";
-      extractDataButton.disabled = false;
+      extractApplicationButton.textContent = "Extract Application";
+      extractApplicationButton.disabled = false;
     }, 3000);
   }
+});
+
+// Handle the "Applytron Settings" button click
+openSettingsButton.addEventListener('click', () => {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL("viewer.html?section=settings")
+  });
 });
 
 // Function to extract form fields and autofill data from the page
@@ -464,44 +463,6 @@ function extractFormData() {
   }
 }
 
-input.addEventListener('change', async () => {
-  const file = input.files[0];
-  if (!file || file.type !== 'application/pdf') {
-    out.textContent = 'Please select a PDF file.';
-    return;
-  }
-
-  out.textContent = 'Parsing…';
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-  let fullText = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    fullText += content.items.map(item => item.str).join(' ') + '\n';
-  }
-
-  out.textContent = toMarkdown(fullText);
-});
-
-function toMarkdown(text) {
-  return text
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l)
-    .map(l => {
-      if (/^[-•*]\s*/.test(l)) {
-        return '- ' + l.replace(/^[-•*]\s*/, '');
-      }
-      if (l === l.toUpperCase() && l.length < 50) {
-        return '## ' + l;
-      }
-      return l;
-    })
-    .join('\n\n');
-}
-
 // Check if we have any stored data to show badge
 document.addEventListener('DOMContentLoaded', () => {
   chrome.tabs.query({active: true, currentWindow: true}, async (tabs) => {
@@ -514,7 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
           try {
             const formData = JSON.parse(data.extractedHTML);
             if (formData.pageAnalysis && formData.pageAnalysis.autofillableFieldsCount > 0) {
-              extractDataButton.textContent = `Extract Form Data (${formData.pageAnalysis.autofillableFieldsCount} fields)`;
+              extractApplicationButton.textContent = `Extract Application (${formData.pageAnalysis.autofillableFieldsCount} fields)`;
             }
           } catch (error) {
             console.error("Error parsing stored form data:", error);

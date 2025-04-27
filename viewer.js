@@ -219,7 +219,7 @@ function generatePrompt() {
   }
   
   // Generate a prompt for the AI
-  let prompt = `I need your help to fill out a form using information from my resume. 
+  let prompt = `I need your help to fill out an application form using information from my resume. 
 
 RESUME CONTENT:
 ${resume}
@@ -228,20 +228,20 @@ FORM FIELDS:
 `;
 
   if (autofillableFields.length > 0) {
-    // Add all autofillable fields to the prompt
+    // Add all autofillable fields to the prompt with their actual field IDs/names
     autofillableFields.forEach(field => {
-      const fieldName = field.name || field.id;
-      const fieldLabel = field.label || fieldName;
-      prompt += `- ${fieldLabel} (ID: ${fieldName}, Type: ${field.type})\n`;
+      const fieldIdentifier = field.name || field.id || '(No ID)';
+      const fieldLabel = field.label || fieldIdentifier;
+      prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
     });
   } else if (forms.length > 0) {
-    // Fallback to listing all form fields
+    // Fallback to listing all form fields with their IDs
     forms.forEach(form => {
       prompt += `Form: ${form.name || form.id}\n`;
       form.fields.forEach(field => {
-        const fieldName = field.name || field.id;
-        const fieldLabel = field.label || fieldName;
-        prompt += `- ${fieldLabel} (ID: ${fieldName}, Type: ${field.type})\n`;
+        const fieldIdentifier = field.name || field.id || '(No ID)';
+        const fieldLabel = field.label || fieldIdentifier;
+        prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
       });
     });
   } else {
@@ -249,8 +249,11 @@ FORM FIELDS:
   }
   
   prompt += `\nPlease analyze the resume and provide values for these form fields based ONLY on information present in the resume. 
+For each field, use EXACTLY the field ID/name I provided in the "Field ID/Name" as the key in your JSON response.
+For example, if I have a field with Field ID/Name: "_systemfield_email", use that exact value as the key in your JSON.
+
 For each field, provide:
-1. The field ID or name
+1. The exact field ID/name as the key
 2. The suggested value based on the resume content
 3. Your confidence level (High/Medium/Low) for this mapping
 
@@ -262,7 +265,7 @@ Format your response exactly as follows:
 {
   "fields": [
     {
-      "id": "field_name_or_id",
+      "id": "EXACT_FIELD_ID_OR_NAME",
       "value": "suggested value from resume",
       "confidence": "High/Medium/Low"
     },

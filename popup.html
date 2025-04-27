@@ -2,39 +2,39 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Resume → MD</title>
+  <title>Applytron</title>
   <style>
     body { font-family: sans-serif; width: 300px; padding: 10px; }
-    #output {
-      white-space: pre-wrap;
-      font-family: monospace;
-      margin-top: 10px;
-      max-height: 200px;
-      overflow: auto;
-    }
     .button {
-      display: inline-block;
+      display: block;
       background: #4285f4;
       color: white;
-      padding: 8px 16px;
+      padding: 10px 16px;
       border-radius: 4px;
       text-decoration: none;
       margin-top: 10px;
       cursor: pointer;
+      text-align: center;
+      border: none;
+      width: 100%;
+      font-size: 14px;
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 15px;
+      font-weight: bold;
+      font-size: 24px;
+      color: #4285f4;
     }
   </style>
 </head>
 <body>
-  <h2>Upload PDF</h2>
-  <p>Choose one of the following options:</p>
+  <div class="logo">Applytron</div>
   
-  <input type="file" id="fileInput" accept="application/pdf">
-  <div id="output">Parsed Markdown will appear here…</div>
-  
-  <a class="button" id="openViewer">Open Full-Page Viewer</a>
-  <a class="button" id="extractData">Extract HTML Data</a>
+  <button class="button" id="extractApplication">Extract Application</button>
+  <button class="button" id="openSettings">Applytron Settings</button>
 
-  <!-- Use type="module" to load the PDF.js as ES module -->
+  <!-- Use type="module" to load the JS as ES module -->
   <script type="module" src="popup.js"></script>
 </body>
 </html>
