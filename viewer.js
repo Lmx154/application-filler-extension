@@ -210,6 +210,11 @@ function generatePrompt() {
       const parsedData = JSON.parse(extractedData);
       forms = parsedData.forms || [];
       autofillableFields = parsedData.autofillableFields || [];
+      
+      console.log("Form data detected:", {
+        formCount: forms.length,
+        autofillableFieldsCount: autofillableFields.length
+      });
     } catch (error) {
       console.error('Error parsing form data:', error);
       return 'Error: Could not parse form data';
@@ -227,21 +232,72 @@ ${resume}
 FORM FIELDS:
 `;
 
+  // Create a set to track field IDs we've already added to prevent duplicates
+  const processedFieldIds = new Set();
+  
+  // First add all autofillable fields to the prompt
   if (autofillableFields.length > 0) {
-    // Add all autofillable fields to the prompt with their actual field IDs/names
     autofillableFields.forEach(field => {
-      const fieldIdentifier = field.name || field.id || '(No ID)';
-      const fieldLabel = field.label || fieldIdentifier;
-      prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
+      // Use name or ID as the field identifier, with fallbacks for dynamic JS forms
+      let fieldIdentifier = field.name || field.id || '';
+      
+      // If the field has no ID/name but has a path, use a portion of the path as identifier
+      if (!fieldIdentifier && field.path) {
+        // Extract the last part of the path that might contain a useful identifier
+        const pathParts = field.path.split('>');
+        const lastPart = pathParts[pathParts.length - 1].trim();
+        if (lastPart.includes('id=')) {
+          fieldIdentifier = lastPart.match(/id=["']([^"']+)["']/)?.[1] || '';
+        } else if (lastPart.includes('class=')) {
+          fieldIdentifier = lastPart.match(/class=["']([^"']+)["']/)?.[1] || '';
+        }
+      }
+      
+      // If we still don't have an identifier, use something unique
+      if (!fieldIdentifier) {
+        fieldIdentifier = `field_${autofillableFields.indexOf(field)}`;
+      }
+      
+      // Only add this field if we haven't processed it already
+      if (!processedFieldIds.has(fieldIdentifier)) {
+        processedFieldIds.add(fieldIdentifier);
+        
+        const fieldLabel = field.label || fieldIdentifier;
+        prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
+      }
     });
   } else if (forms.length > 0) {
-    // Fallback to listing all form fields with their IDs
+    // Fallback to listing all form fields if no autofillable fields were detected
     forms.forEach(form => {
       prompt += `Form: ${form.name || form.id}\n`;
       form.fields.forEach(field => {
-        const fieldIdentifier = field.name || field.id || '(No ID)';
-        const fieldLabel = field.label || fieldIdentifier;
-        prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
+        // Use name or ID as the field identifier, with fallbacks
+        let fieldIdentifier = field.name || field.id || '';
+        
+        // If the field has no ID/name but has a path, use a portion of the path as identifier
+        if (!fieldIdentifier && field.path) {
+          // Extract the last part of the path that might contain a useful identifier
+          const pathParts = field.path.split('>');
+          const lastPart = pathParts[pathParts.length - 1].trim();
+          if (lastPart.includes('id=')) {
+            fieldIdentifier = lastPart.match(/id=["']([^"']+)["']/)?.[1] || '';
+          } else if (lastPart.includes('class=')) {
+            fieldIdentifier = lastPart.match(/class=["']([^"']+)["']/)?.[1] || '';
+          }
+        }
+        
+        // If we still don't have an identifier, use something unique
+        if (!fieldIdentifier) {
+          fieldIdentifier = `field_${forms.indexOf(form)}_${form.fields.indexOf(field)}`;
+        }
+        
+        // Only add this field if we haven't processed it already
+        if (!processedFieldIds.has(fieldIdentifier)) {
+          processedFieldIds.add(fieldIdentifier);
+          
+          const fieldLabel = field.label || fieldIdentifier;
+          prompt += `- ${fieldLabel} (Field ID/Name: "${fieldIdentifier}", Type: ${field.type})\n`;
+        }
       });
     });
   } else {
@@ -250,7 +306,7 @@ FORM FIELDS:
   
   prompt += `\nPlease analyze the resume and provide values for these form fields based ONLY on information present in the resume. 
 For each field, use EXACTLY the field ID/name I provided in the "Field ID/Name" as the key in your JSON response.
-For example, if I have a field with Field ID/Name: "_systemfield_email", use that exact value as the key in your JSON.
+For example, if I have a field with Field ID/Name: "_systemfield_email" or "d727c1e4-3750-4506-88be-1180535fc608", use that exact value as the key in your JSON.
 
 For each field, provide:
 1. The exact field ID/name as the key
@@ -259,6 +315,8 @@ For each field, provide:
 
 If a field has no corresponding information in the resume, mark it as "No information available" with Low confidence.
 Do NOT make up or invent any information that is not explicitly in the resume.
+
+This is a JavaScript-based form with dynamically generated field IDs, so it's CRITICAL that you use the exact field ID/name I provided.
 
 IMPORTANT: Return ONLY a valid JSON object without any markdown formatting (no \`\`\` characters). Your entire response should be parseable as JSON.
 Format your response exactly as follows:
