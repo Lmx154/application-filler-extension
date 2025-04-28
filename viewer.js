@@ -123,12 +123,16 @@ async function initializeAIProvider() {
   // Show/hide Ollama model selector based on the selected provider
   toggleOllamaModelSelector(providerType === 'Ollama');
   
+  // Show/hide ENV fields based on the provider
+  toggleENVFields(providerType === 'ENV');
+  
   // If Ollama is selected, fetch available models
   if (providerType === 'Ollama') {
     initializeOllamaModels(baseURL);
   }
   
-  if (apiKey || providerType === 'Ollama' || providerType === 'LMStudio') {
+  // Initialize API client based on provider type
+  if (apiKey || providerType === 'Ollama' || providerType === 'LMStudio' || providerType === 'ENV') {
     const api = new AgentsAPI(apiKey, baseURL, model, providerType);
     ViewerCore.setAgentsAPI(api);
     return true;
@@ -151,6 +155,62 @@ function toggleOllamaModelSelector(show) {
   
   if (temperatureContainer) {
     temperatureContainer.style.display = show ? 'flex' : 'none';
+  }
+}
+
+/**
+ * Show or hide ENV-specific UI elements and add explanation
+ * @param {boolean} show - Whether to show ENV-specific elements
+ */
+function toggleENVFields(show) {
+  const apiKeyField = document.getElementById('api-key');
+  const apiBaseUrlField = document.getElementById('api-base-url');
+  const modelNameField = document.getElementById('model-name');
+  
+  // Create or get ENV info message
+  let envInfoDiv = document.getElementById('env-info-message');
+  if (!envInfoDiv && show) {
+    envInfoDiv = document.createElement('div');
+    envInfoDiv.id = 'env-info-message';
+    envInfoDiv.style.margin = '10px 0';
+    envInfoDiv.style.padding = '10px';
+    envInfoDiv.style.backgroundColor = '#e0f7fa';
+    envInfoDiv.style.border = '1px solid #00838f';
+    envInfoDiv.style.borderRadius = '4px';
+    
+    // Add the info text
+    envInfoDiv.innerHTML = 'Settings will be loaded from the <code>.env</code> file in your project root.<br>' +
+      'Required variables: <code>OPENAI_API_KEY</code>, <code>OPENAI_API_BASE</code> (optional), <code>MODEL_NAME</code> (optional)';
+    
+    // Insert after the API key field row
+    const apiKeyRow = apiKeyField.closest('.settings-row');
+    apiKeyRow.parentNode.insertBefore(envInfoDiv, apiKeyRow.nextSibling);
+  }
+  
+  // Show/hide ENV info message
+  if (envInfoDiv) {
+    envInfoDiv.style.display = show ? 'block' : 'none';
+  }
+  
+  // Disable/enable input fields
+  if (show) {
+    apiKeyField.disabled = true;
+    apiKeyField.placeholder = 'Will be loaded from OPENAI_API_KEY in .env';
+    
+    apiBaseUrlField.disabled = true;
+    apiBaseUrlField.placeholder = 'Will be loaded from OPENAI_API_BASE in .env';
+    
+    modelNameField.disabled = true;
+    modelNameField.placeholder = 'Will be loaded from MODEL_NAME in .env';
+  } else {
+    apiKeyField.disabled = false;
+    apiKeyField.placeholder = 'Enter your API key';
+    
+    apiBaseUrlField.disabled = false;
+    apiBaseUrlField.placeholder = 'https://api.openai.com/v1';
+    
+    modelNameField.disabled = false;
+    modelNameField.placeholder = 'gpt-4o';
   }
 }
 
@@ -547,8 +607,8 @@ function handleSaveApiSettings() {
   const providerType = document.getElementById('api-provider').value;
   const temperature = document.getElementById('temperature-setting').value;
 
-  // For Ollama and LMStudio, API key is optional
-  if (!apiKey && providerType !== 'Ollama' && providerType !== 'LMStudio') {
+  // For Ollama, LMStudio, and ENV providers, API key is optional
+  if (!apiKey && providerType !== 'Ollama' && providerType !== 'LMStudio' && providerType !== 'ENV') {
     showStatusMessage('Please enter a valid API key', false, apiStatusMessage);
     return;
   }
@@ -562,7 +622,19 @@ function handleSaveApiSettings() {
     modelTemperature: temperature
   });
   
-  // Update the API client with the new settings
+  // Special handling for ENV provider - use the ENVProvider directly
+  if (providerType === 'ENV') {
+    // Create a new API instance with the ENV provider
+    const api = new AgentsAPI('', '', '', 'ENV'); // The values don't matter for ENV provider
+    ViewerCore.setAgentsAPI(api);
+    
+    // Show a special message for ENV provider
+    showStatusMessage('API settings saved. Using values from .env file.', true, apiStatusMessage);
+    addMessage('API settings updated to use values from .env file.');
+    return;
+  }
+  
+  // Regular handling for other providers
   const api = new AgentsAPI(
     apiKey, 
     apiBaseUrl || AIProviderFactory.getProviderDefaults(providerType).baseURL, 
@@ -691,6 +763,9 @@ function handleProviderChange() {
   
   // Toggle Ollama model selector visibility
   toggleOllamaModelSelector(providerType === 'Ollama');
+  
+  // Toggle ENV fields if ENV provider is selected
+  toggleENVFields(providerType === 'ENV');
   
   // If switching to Ollama, initialize models
   if (providerType === 'Ollama') {

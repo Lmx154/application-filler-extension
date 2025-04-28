@@ -914,6 +914,65 @@ class LMStudioProvider extends BaseAIProvider {
   }
 }
 
+class ENVProvider extends OpenAIProvider {
+  constructor() {
+    // Attempt to load settings from .env file
+    try {
+      // Initialize with empty values
+      let apiKey = '';
+      let baseURL = 'https://api.openai.com/v1';
+      let model = 'gpt-4o';
+      
+      // Try to fetch the .env file content using XMLHttpRequest (browser compatible)
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', '.env', false);  // Synchronous request
+      xhr.send();
+      
+      if (xhr.status === 200) {
+        const envFileContent = xhr.responseText;
+        console.log("ENV file loaded successfully");
+        
+        // Parse .env file content
+        const envVars = {};
+        envFileContent.split('\n').forEach(line => {
+          line = line.trim();
+          // Skip comments and empty lines
+          if (line && !line.startsWith('//') && !line.startsWith('#')) {
+            const match = line.match(/^([A-Za-z0-9_]+)=(.*)$/);
+            if (match) {
+              const key = match[1];
+              let value = match[2];
+              // Remove quotes if present
+              if ((value.startsWith('"') && value.endsWith('"')) || 
+                  (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.substring(1, value.length - 1);
+              }
+              envVars[key] = value;
+            }
+          }
+        });
+        
+        // Get settings from parsed env vars
+        apiKey = envVars.OPENAI_API_KEY || '';
+        baseURL = envVars.OPENAI_API_BASE || 'https://api.openai.com/v1';
+        model = envVars.MODEL_NAME || 'gpt-4o';
+        
+        console.log(`ENV provider initialized with model: ${model}`);
+      } else {
+        console.warn("Failed to load .env file, using default settings");
+      }
+      
+      // Call the OpenAI provider constructor with the loaded settings
+      super(apiKey, baseURL, model);
+      
+    } catch (error) {
+      console.error("Error initializing ENV provider:", error);
+      // Fall back to default OpenAI settings if there's an error
+      super('', 'https://api.openai.com/v1', 'gpt-4o');
+    }
+  }
+}
+
 // Provider factory to create the appropriate provider
 class AIProviderFactory {
   static createProvider(providerType, apiKey, baseURL, model) {
@@ -932,6 +991,8 @@ class AIProviderFactory {
         return new OllamaProvider(apiKey, baseURL, model);
       case 'LMStudio':
         return new LMStudioProvider(apiKey, baseURL, model);
+      case 'ENV':
+        return new ENVProvider();
       default:
         console.warn(`Unknown provider type: ${providerType}, falling back to OpenAI`);
         return new OpenAIProvider(apiKey, baseURL, model);
@@ -968,6 +1029,10 @@ class AIProviderFactory {
       LMStudio: {
         baseURL: 'http://localhost:1234',
         defaultModel: 'default'
+      },
+      ENV: {
+        baseURL: '',  // Will be loaded from .env
+        defaultModel: '' // Will be loaded from .env
       }
     };
     
