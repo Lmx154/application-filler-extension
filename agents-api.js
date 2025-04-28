@@ -331,7 +331,7 @@ class XAIProvider extends BaseAIProvider {
 }
 
 class OllamaProvider extends BaseAIProvider {
-  constructor(apiKey = '', baseURL = 'http://localhost:11434', model = 'llama3') {
+  constructor(apiKey = '', baseURL = 'http://localhost:11434', model = 'mistral-nemo:12b-instruct-2407-q4_0') {
     super(apiKey, baseURL, model);
     // Track available models
     this.availableModels = [];

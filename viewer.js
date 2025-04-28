@@ -796,13 +796,6 @@ async function handleSendMessage() {
  */
 async function handleGenerateOutput() {
   try {
-    // Check if we have a resume
-    const resumeContent = settingsManager.getSetting('parsedResume');
-    if (!resumeContent) {
-      showStatusMessage('Please upload a resume first.', false);
-      return;
-    }
-    
     // Check if we have form data
     if (!ViewerCore.formData) {
       showStatusMessage('No form data available. Please visit a site with a form first.', false);
@@ -823,6 +816,9 @@ async function handleGenerateOutput() {
     
     // Check if agentic workflow is enabled
     const useAgentic = settingsManager.getSetting('agenticWorkflow');
+    
+    // Get resume content if available
+    const resumeContent = settingsManager.getSetting('parsedResume') || '';
     
     let aiResponse;
     if (useAgentic) {
