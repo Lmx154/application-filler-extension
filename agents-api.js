@@ -357,13 +357,17 @@ class OllamaProvider extends BaseAIProvider {
       // Add user message to conversation history
       this.conversation.push({ role: "user", content: userMessage });
 
+      // Get custom temperature from localStorage if available
+      const temperature = parseFloat(localStorage.getItem('modelTemperature')) || 0.7;
+      console.log(`Using temperature: ${temperature}`);
+
       // Prepare the request payload for Ollama chat API
       const payload = {
         model: this.model,
         messages: this.conversation,
         stream: false,
         options: {
-          temperature: 0.7,
+          temperature: temperature,
           top_p: 0.95
         }
       };
@@ -681,13 +685,13 @@ class OllamaProvider extends BaseAIProvider {
       
       console.log("Using Mistral function calling format with", tools.length, "tools");
       
-      // Format the system message to emphasize function calling
+      // Format the system message to emphasize function calling but without JavaScript syntax
       let hasSystemMessage = false;
       for (let i = 0; i < messages.length; i++) {
         if (messages[i].role === 'system') {
           hasSystemMessage = true;
-          // Append function calling instructions to system message
-          messages[i].content += "\n\nIMPORTANT: You MUST use the provided tools by directly calling the functions. DO NOT describe what you would do or suggest function calls - make the actual function calls instead. For example, don't say 'I would use fill_field()', actually call the function with valid arguments.";
+          // Remove JavaScript-specific instructions which might confuse the model's tool head
+          messages[i].content += "\n\nIMPORTANT: You MUST use the tools provided to complete your task.";
           break;
         }
       }
@@ -696,16 +700,20 @@ class OllamaProvider extends BaseAIProvider {
       if (!hasSystemMessage) {
         messages.unshift({
           role: 'system',
-          content: 'You are a helpful assistant that must use the provided tools. Always call functions directly instead of describing what you would do. Use the tools to complete the task efficiently.'
+          content: 'You are a helpful assistant that uses the provided tools to complete tasks efficiently.'
         });
       }
       
-      // Always force tool use with Mistral to ensure function calling
+      // CRITICAL: Ensure all required parameters are included for function calling
       const requestBody = {
         model: this.model,
         messages: messages,
-        tools: tools,
-        tool_choice: "any", // Force tool use
+        tools: tools,                       // Required: tool definitions array
+        tool_choice: options.tool_choice || "auto",  // Required: auto or required 
+        options: {
+          temperature: options.temperature || 0.25,   // Lower temperature for more reliable tool use
+          top_p: options.top_p || 0.95
+        },
         stream: false
       };
       
@@ -1049,6 +1057,56 @@ class AgentsAPI {
     }
     
     throw new Error("No user message found for function calling fallback");
+  }
+
+  /**
+   * Send a conversation to the model
+   * @param {Array} conversation - The conversation history
+   * @param {Object} options - Additional options for the API call
+   * @returns {Promise<string|Object>} - The model's response
+   */
+  async sendConversation(conversation, options = {}) {
+    // Check if this is a tool-equipped message for a Mistral/Nemo model
+    const isMistralModel = this.modelName && 
+      (this.modelName.toLowerCase().includes('mistral') ||
+       this.modelName.toLowerCase().includes('nemo'));
+    
+    // If this has tools and is for a Mistral model, use the function calling method
+    if (options.tools && isMistralModel) {
+      console.log("Using function calling method for Mistral model with tools");
+      return await this.sendFunctionCallingMessage(
+        conversation,
+        options.tools,
+        {
+          tool_choice: options.tool_choice || "auto",
+          temperature: options.temperature || 0.25 // Keep temperature low for better tool use
+        }
+      );
+    }
+    
+    // For normal conversation without tools, or non-Mistral models
+    console.log("Using normal sendMessage for conversation");
+    
+    // Find the last user message
+    const lastUserMessage = conversation.filter(msg => msg.role === "user").pop();
+    
+    if (lastUserMessage) {
+      // Use the provider's conversation handling if available
+      if (this.provider.sendConversation) {
+        return await this.provider.sendConversation(conversation, options);
+      }
+      
+      // Set the entire conversation history in the provider
+      if (conversation.length > 0) {
+        this.provider.clearConversation();
+        this.provider.conversation = [...conversation];
+      }
+      
+      // Send just the last user message (provider will have the history)
+      return await this.provider.sendMessage(lastUserMessage.content);
+    }
+    
+    throw new Error("No user message found in conversation");
   }
 
   clearConversation() {

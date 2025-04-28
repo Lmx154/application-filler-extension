@@ -29,19 +29,87 @@ class FormFillingTools {
     // Resume analysis cache
     this.resumeAnalysis = null;
     
-    // Detect if using a Mistral model
-    this.isMistralModel = this.apiProvider && 
-      this.apiProvider.modelName && 
-      (this.apiProvider.modelName.toLowerCase().includes('mistral') ||
-       this.apiProvider.modelName.toLowerCase().includes('nemo'));
+    // Detect if using a Mistral model by checking either modelName or model property
+    const modelId = (this.apiProvider.modelName || this.apiProvider.model || '').toLowerCase();
+    this.isMistralModel = /mistral|nemo/.test(modelId);
     
     // Configure Mistral-specific options if using Mistral
     if (this.isMistralModel) {
       this.useMistralFunctionCalling = true;
+      // Create the tools list once and reuse it
+      this.mistralTools = this.generateMistralToolDefinitions();
       console.log("Detected Mistral model, enabling Mistral function calling");
     }
   }
   
+  /**
+   * Helper to always call the function-calling endpoint for Mistral/Nemo models
+   * @param {Array} conversation - The conversation history
+   * @returns {Promise<Object>} - The model's response
+   */
+  async callModel(conversation) {
+    return await this.apiProvider.sendFunctionCallingMessage(
+      conversation,
+      this.generateMistralToolDefinitions(),
+      { tool_choice: "auto", temperature: 0.25 }
+    );
+  }
+
+  /**
+   * Send a function calling message to Mistral models
+   * @param {Array} messages - Array of message objects
+   * @param {Array} tools - Array of tool definitions
+   * @param {Object} options - Options for the function calling
+   * @returns {Promise<Object>} - The response from the API
+   */
+  async sendFunctionCallingMessage(messages, tools, options = {}) {
+    try {
+      const isMistralModel = this.model.toLowerCase().includes('mistral') || 
+                            this.model.toLowerCase().includes('nemo');
+      
+      if (!isMistralModel) {
+        console.warn('Function calling is optimized for Mistral models, falling back to standard chat');
+        return await this.sendMessage(messages[messages.length-1].content);
+      }
+      
+      console.log("Using Mistral function calling format with", tools.length, "tools");
+      
+      // ──► 1. append IMPORTANT-line only once
+      const importantLine = 'IMPORTANT: You MUST use the tools provided to complete your task.';
+      let hasSystem = false;
+      for (let i = 0; i < messages.length; i++) {
+        if (messages[i].role === 'system') {
+          hasSystem = true;
+          if (!messages[i].content.includes(importantLine)) {
+            messages[i].content += "\n\n" + importantLine;
+          }
+          break;
+        }
+      }
+      if (!hasSystem) {
+        messages.unshift({ role: 'system', content: importantLine });
+      }
+      
+      // CRITICAL: Ensure all required parameters are included for function calling
+      const requestBody = {
+        model: this.model,
+        messages: messages,
+        tools: tools,                       // Required: tool definitions array
+        tool_choice: options.tool_choice || "auto",  // Required: auto or required 
+        options: {
+          temperature: options.temperature ?? 0.25,   // Lower temperature for more reliable tool use
+          top_p: options.top_p ?? 0.95
+        },
+        stream: false
+      };
+      
+      console.log("Sending Mistral function call request:", JSON.stringify(requestBody, null, 2).substring(0, 500) + "...");
+    } catch (error) {
+      console.error("Error sending function calling message:", error);
+      throw error;
+    }
+  }
+
   /**
    * Generate a system message with available tools and current state
    * @returns {string} The system message
@@ -61,22 +129,14 @@ class FormFillingTools {
 Current state: ${this.currentState}
 Fields completed: ${this.completedFields.length}/${this.formFields.length}`;
 
-    // For Mistral models, add a reminder about using JavaScript function calling format
+    // For Mistral models, use simpler tool calling instructions with no JS syntax
     if (this.isMistralModel) {
-      return baseMessage + `\n\nIMPORTANT: You are working with a JavaScript environment. Always return function calls in proper JavaScript format.
-When calling a tool function, use standard JavaScript syntax.
-
-Example of proper JavaScript function calls:
-- get_next_field()
-- search_resume("education")
-- fill_field("application-form_input_name_1", "John Doe", "High")
-
-Follow these steps REPEATEDLY:
-1. Call \`get_next_field()\` to get the \`field_id\` and details of the next form field.
+      return baseMessage + `\n\nFollow these steps REPEATEDLY:
+1. Call get_next_field to get the field_id and details of the next form field.
 2. Based on the field details, decide what information is needed from the resume.
-3. Use \`analyze_resume()\` or \`search_resume(query='...')\` to find the required information.
-4. Call \`fill_field(field_id='THE_EXACT_ID_FROM_STEP_1', value='THE_VALUE_FROM_STEP_3', confidence='...')\`.
-5. If \`get_next_field()\` indicates no fields remain, stop.`;
+3. Use analyze_resume or search_resume to find the required information.
+4. Call fill_field with the field_id from step 1, the value from step 3, and a confidence rating.
+5. If get_next_field indicates no fields remain, stop.`;
     }
 
     return baseMessage + `\n\nFollow these steps REPEATEDLY:
@@ -97,22 +157,11 @@ Follow these steps REPEATEDLY:
    * @returns {string} The initial prompt
    */
   generateInitialPrompt() {
-    // For Mistral models, make it clear that we need to use actual functions
+    // For Mistral models, use much simpler instructions with no JS syntax
     if (this.isMistralModel) {
       return `I need you to fill out a form using information from a resume. There are ${this.formFields.length} fields to fill.
 
-You have these JavaScript functions available to use:
-1. analyze_resume() - Get key information from the resume
-2. get_resume_section("section_name") - Get sections like "education", "experience", etc.
-3. get_next_field() - Get the next field that needs to be filled
-4. fill_field("field_id", "value", "confidence") - Fill a form field with a value
-
-IMPORTANT: You MUST call these functions directly using JavaScript syntax.
-DO NOT describe what you would do - call the actual functions!
-
-For example, write: analyze_resume() or fill_field("field-id", "John Doe", "High")
-
-Let's start by calling get_next_field() to get the first field to fill.`;
+Start by calling get_next_field to get the first field that needs to be filled.`;
     }
 
     // For other models
@@ -143,13 +192,12 @@ First, analyze the resume to understand the candidate's background, then proceed
         { role: "user", content: initialPrompt }
       ];
       
-      // If using Mistral, prepare tools definition in Mistral format
+      let response;
       if (this.useMistralFunctionCalling) {
-        this.mistralTools = this.generateMistralToolDefinitions();
+        response = await this.callModel(conversation);
+      } else {
+        response = await this.sendMessage(conversation);
       }
-      
-      // Use the API provider to send the message
-      const response = await this.sendMessage(conversation);
       
       // Process the response and continue the conversation as needed
       return await this.handleAgentResponse(response, conversation);
@@ -304,22 +352,45 @@ First, analyze the resume to understand the candidate's background, then proceed
    */
   async sendMessage(conversation) {
     try {
-      // For Mistral models, use the function calling API
-      if (this.useMistralFunctionCalling && this.apiProvider.sendFunctionCallingMessage) {
-        // Use the Mistral-specific function calling API
-        return await this.apiProvider.sendFunctionCallingMessage(
-          conversation, 
-          this.mistralTools, 
-          { tool_choice: "auto" }
-        );
+      // Make sure we're maintaining the system message in all API calls
+      if (!conversation.some(msg => msg.role === "system")) {
+        // Add a default system message if none exists
+        conversation.unshift({ 
+          role: "system", 
+          content: this.generateSystemMessage() 
+        });
       }
       
-      // For API providers that support conversation history
+      // CRITICAL: Always include tools and required parameters for Mistral models
+      if (this.useMistralFunctionCalling && this.mistralTools) {
+        const options = { 
+          tools: this.mistralTools,    // Always include tools array
+          tool_choice: "auto",         // Required - let model decide when to use tools
+          temperature: 0.25            // Lower temperature for more reliable tool use
+        };
+        
+        // If we have a sendFunctionCallingMessage method, use it
+        if (this.apiProvider.sendFunctionCallingMessage) {
+          console.log("Sending message with Mistral function calling format");
+          return await this.apiProvider.sendFunctionCallingMessage(
+            conversation, 
+            this.mistralTools, 
+            options
+          );
+        } 
+        // Otherwise use sendConversation with tools parameter
+        else if (this.apiProvider.sendConversation) {
+          console.log("Sending conversation with tools parameter");
+          return await this.apiProvider.sendConversation(conversation, options);
+        }
+      }
+      
+      // For non-Mistral models or when tools aren't defined
       if (this.apiProvider.sendConversation) {
         return await this.apiProvider.sendConversation(conversation);
       }
       
-      // For API providers that only support the last message
+      // Last resort - send just the last message
       const lastUserMessage = conversation.filter(msg => msg.role === "user").pop();
       if (lastUserMessage) {
         return await this.apiProvider.sendMessage(lastUserMessage.content);
@@ -346,17 +417,26 @@ First, analyze the resume to understand the candidate's background, then proceed
       for (const toolCall of response.tool_calls) {
         if (toolCall.function && toolCall.function.name) {
           const tool = toolCall.function.name;
-          // Parse the arguments
+          
+          // Parse the arguments - handle both string and object formats
+          const rawArgs = toolCall.function.arguments ?? {};
           let args = {};
-          if (toolCall.function.arguments) {
+          
+          if (typeof rawArgs === 'string') {
             try {
-              args = JSON.parse(toolCall.function.arguments);
+              args = rawArgs.trim() ? JSON.parse(rawArgs) : {};
             } catch (e) {
-              console.error("Error parsing Mistral tool arguments", e);
+              console.error("Error parsing Mistral tool arguments as string", e, rawArgs);
             }
+          } else if (typeof rawArgs === 'object') {
+            args = rawArgs; // Already parsed, just use it directly
           }
           
-          toolCalls.push({ tool, args });
+          toolCalls.push({ 
+            id: toolCall.id,  // Keep the id for proper tool reply chaining
+            tool, 
+            args 
+          });
         }
       }
       
@@ -388,8 +468,12 @@ First, analyze the resume to understand the candidate's background, then proceed
               const args = { ...parsedAction };
               delete args.action;
               
-              // Add to tool calls
-              toolCalls.push({ tool: toolName, args });
+              // Add to tool calls with a generated id
+              toolCalls.push({ 
+                id: `auto_${Math.random().toString(36).substring(2, 10)}`,
+                tool: toolName, 
+                args 
+              });
               console.log(`Detected JSON action format: ${toolName}`, args);
               
               // Return early since we found a valid JSON action
@@ -510,7 +594,7 @@ First, analyze the resume to understand the candidate's background, then proceed
         const fieldPattern = /ID:\s*(application-[^\n]+)\n-\s*Value:\s*([^\n]+)/i;
         const fieldMatch = response.match(fieldPattern);
         if (fieldMatch) {
-          const field_id = fieldMatch[1];
+          const fieldId = fieldMatch[1];
           const value = fieldMatch[2];
           
           // Look for confidence
@@ -573,8 +657,8 @@ First, analyze the resume to understand the candidate's background, then proceed
         case 'fill_field': {
           // Handle various formats for fill_field arguments
           if (argsStr.includes(',')) {
-            // If comma separated, split by commas
-            const parts = argsStr.split(',').map(p => p.trim().replace(/^["']|["']$/g, ''));
+            // If comma separated, split by commas respecting quotes
+            const parts = splitCsvRespectingQuotes(argsStr);
             if (parts.length >= 2) {
               return {
                 field_id: parts[0],
@@ -711,20 +795,29 @@ First, analyze the resume to understand the candidate's background, then proceed
               break;
             }
             
-            // Add both the tool call and its result to conversation
+            // ──► 2. Echo assistant function-call WITH empty content field
             conversation.push({
               role: "assistant",
-              content: `I'll use the ${toolCall.tool} tool to ${getToolDescription(toolCall.tool)}.`
+              content: '',              // ★ REQUIRED for Mistral
+              tool_calls: [{
+                id: toolCall.id || `call_${Math.random().toString(36).substring(2, 10)}`,
+                type: "function",
+                function: {
+                  name: toolCall.tool,
+                  arguments: toolCall.args || {}  // Keep as object, don't stringify
+                }
+              }]
             });
             
+            // Add the tool result with proper format
             conversation.push({
-              role: "user",
-              content: `Here are the results of your tool calls:\n\nTool: ${toolCall.tool}\nResult: \n${typeof toolResult === 'object' ? JSON.stringify(toolResult, null, 2) : toolResult}\n\nContinue filling out the form using these tools. There are still fields to complete.`
+              role: "tool",
+              tool_call_id: toolCall.id || conversation[conversation.length-1].tool_calls[0].id,
+              content: JSON.stringify(toolResult)
             });
             
             // Reset consecutive error counter after successful tool execution
             consecutiveErrorCount = 0;
-            
           } catch (error) {
             console.error(`Error executing tool ${toolCall.tool}:`, error);
             
@@ -736,22 +829,24 @@ First, analyze the resume to understand the candidate's background, then proceed
               // If too many attempts on this field, skip it
               if (fieldAttempts.get(fieldId) >= 3) {
                 console.warn(`Skipping field ${fieldId} after ${fieldAttempts.get(fieldId)} failed attempts`);
+                // Still use proper assistant/tool format for error handling
+                // Add error message as assistant content
                 conversation.push({
-                  role: "user",
-                  content: `Tool error: Failed to fill field "${fieldId}" after multiple attempts. Please skip this field and continue with the next one using get_next_field().`
+                  role: "assistant",
+                  content: `Error filling field "${fieldId}" after multiple attempts.`
                 });
               } else {
-                // Add error to conversation
+                // Add error message as assistant content
                 conversation.push({
-                  role: "user",
-                  content: `Error when using ${toolCall.tool}: ${error.message}. Please try again or use get_next_field() to skip to the next field.`
+                  role: "assistant",
+                  content: `Error when using ${toolCall.tool}: ${error.message}.`
                 });
               }
             } else {
-              // Add error to conversation for non-fill_field tools
+              // Add error message as assistant content for non-fill_field tools
               conversation.push({
-                role: "user",
-                content: `Error when using ${toolCall.tool}: ${error.message}. Please try again.`
+                role: "assistant",
+                content: `Error when using ${toolCall.tool}: ${error.message}.`
               });
             }
             
@@ -768,7 +863,11 @@ First, analyze the resume to understand the candidate's background, then proceed
         
         // Get next agent response
         try {
-          currentResponse = await this.sendMessage(conversation);
+          if (this.useMistralFunctionCalling) {
+            currentResponse = await this.callModel(conversation);
+          } else {
+            currentResponse = await this.sendMessage(conversation);
+          }
         } catch (error) {
           console.error("Error getting agent response:", error);
           break;
@@ -1114,6 +1213,21 @@ First, analyze the resume to understand the candidate's background, then proceed
       return { error: "Failed to save progress: " + error.message };
     }
   }
+}
+
+/**
+ * Safely split CSV values respecting quoted strings
+ * @param {string} s - The string to split
+ * @returns {Array<string>} - Array of trimmed values
+ */
+function splitCsvRespectingQuotes(s) {
+  const re = /"([^"]*(?:""[^"]*)*)"|([^,]+)/g;
+  const out = [];
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    out.push(m[1] !== undefined ? m[1].replace(/""/g, '"') : m[2]);
+  }
+  return out.map(t => t.trim());
 }
 
 /**

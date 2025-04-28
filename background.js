@@ -25,7 +25,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log(`Making API request to: ${url}`, options);
     
     fetch(url, options)
-    .then(response => {
+    .then(async response => {
       console.log(`Response from ${url}:`, {
         status: response.status,
         statusText: response.statusText,
@@ -36,7 +36,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        const body = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}: ${body}`);
       }
       
       // Check Content-Type header to determine how to process the response
